@@ -9,12 +9,25 @@
 
 **Bite checks whether an AI coding agent's "fixed" is actually true.**
 
+<img alt="bite --demo: one fix is noticed by a test, the other has no test at all" src="https://raw.githubusercontent.com/connabyss/bite/main/assets/bite-demo.svg" width="760">
+
+It takes each recent fix back out of your code and runs your tests. If they still pass, nothing guards that fix,
+and Bite tells you which one. That free check needs no key and works with pytest, npm test, cargo test, go test,
+dotnet test, Maven and Gradle (Java and Kotlin):
+
+```
+pipx install bite-check
+bite --free
+```
+
+With your own API key it goes one step further: it writes one small test of the commit's exact claim and runs it.
+That is how it found a memory leak in [prosemirror-py](#the-catch-that-shows-what-its-for) that a commit said it
+had fixed.
+
 > "Reverting the claimed fix and making the change prove itself under a real test is exactly the kind of check that
 > should exist for every "fixed" commit."
 >
 > — [Ivan Zdravkov](https://zdravkov.info), [on DEV](https://dev.to/izdravkov/comment/3jdej)
-
-When a commit says it fixed something, Bite writes one small test of that exact claim, runs it itself on the commit and on today's code, and shows the result only if a second, independent check agrees the test is fair. If the test fails, the "fixed" wasn't.
 
 ## Try it in a minute
 
@@ -52,7 +65,7 @@ bite --free
 `bite` now works in any terminal window. `bite --free` needs no key and costs nothing. It takes each recent
 change back out, runs your tests, and lists the changes no test guards, plus any new test that still passes
 without its commit's code (it tests nothing). If something it needs is missing, like git or pytest, it says
-so and gives you the line that installs it. Each run ends with a one-page report, `bite_proof/report.html`, to open in your browser. To update Bite later: `pipx upgrade bite-check`.
+so and gives you the line that installs it. Each run ends with a one-page report, `bite_proof/report.html`, to open in your browser. To update Bite later, see [Updating Bite](#updating-bite).
 
 To test the claims themselves (the paid step), add one extra package and set `ANTHROPIC_API_KEY`, then run `bite`:
 
@@ -64,8 +77,23 @@ This step uses your own API key, and `--budget` caps what a run spends ($1 by de
 Agent SDK, so it needs an API key and never uses a Claude login or plan (Anthropic's Agent SDK rule:
 https://code.claude.com/docs/en/agent-sdk/overview). The commits Bite checks can come from any coding AI or person.
 
-Works with pytest, npm test, cargo test, go test and dotnet test. Settings and limits: [AGENTS.md](https://github.com/connabyss/bite/blob/main/AGENTS.md),
+Works with pytest, npm test, cargo test, go test, dotnet test, Maven and Gradle. Settings and limits: [AGENTS.md](https://github.com/connabyss/bite/blob/main/AGENTS.md),
 written so your coding AI (Claude Code, Codex, Cursor, Copilot) can set Bite up for you. To work on Bite itself: clone it, `pip install -e .[test]`, then `python -m pytest`.
+
+## Updating Bite
+
+`bite --version` prints your version, and when a newer one is out it says so and gives you the line to paste.
+That line always gets the newest version:
+
+```
+pipx install --force bite-check --pip-args="--no-cache-dir"
+```
+
+Installed with pip instead of pipx? `python -m pip install --upgrade --no-cache-dir bite-check`
+
+Why not just `pipx upgrade bite-check`? Right after a release, pip can keep using the list of versions it saved
+earlier and say you're already on the latest. `--no-cache-dir` makes it ask PyPI fresh, and `--force` also replaces
+an older `bite` or `bite.exe` that's in the way.
 
 ## Check Claude's "fixed" live, in Claude Code
 
@@ -81,10 +109,10 @@ In Claude Code, type:
 /plugin install bite@bite
 ```
 
-and install Bite itself if you haven't (`bite live` is new: until the next release, install it from GitHub):
+and install Bite itself if you haven't:
 
 ```
-pipx install git+https://github.com/connabyss/bite
+pipx install bite-check
 ```
 
 `/bite` checks the changes since your last commit whenever you like. In a trial, Claude fixed a discount and then
@@ -98,6 +126,60 @@ they still pass. The "fixed" isn't proven yet.
 
 Without the plugin, run `bite live` yourself after a change, or `bite live --hook` from any tool that runs a
 command when the AI stops (it reads Claude Code's Stop hook JSON).
+
+## Check the "fixed" live, in any coding AI
+
+`bite mcp` gives your coding AI the same free check as a tool it can call, `check_fix`, through MCP, the plug most
+coding AIs share. Its description tells the AI to call it after fixing a bug and before saying "fixed". If no test
+notices the change, the AI is told to add one that fails without it. No API key; it works in a copy, so your files
+are never touched. It needs Bite 0.8.0 or newer ([Updating Bite](#updating-bite)).
+
+Add it once, in the place your coding AI keeps its MCP servers:
+
+| Coding AI | Where | What to add |
+|---|---|---|
+| Claude Code | a terminal | `claude mcp add bite -- bite mcp` |
+| Cursor | `.cursor/mcp.json` in the project (or `~/.cursor/mcp.json` for all) | `{"mcpServers": {"bite": {"command": "bite", "args": ["mcp"]}}}` |
+| Copilot in VS Code | `.vscode/mcp.json` in the project | `{"servers": {"bite": {"type": "stdio", "command": "bite", "args": ["mcp"]}}}` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | `{"mcpServers": {"bite": {"command": "bite", "args": ["mcp"]}}}` |
+| Codex CLI | a terminal | `codex mcp add bite -- bite mcp` |
+| Gemini CLI | `.gemini/settings.json` in the project (or `~/.gemini/settings.json`) | `{"mcpServers": {"bite": {"command": "bite", "args": ["mcp"]}}}` |
+
+Any other AI that takes MCP servers: the command is `bite`, the argument is `mcp`. If yours says it can't start
+`bite` (apps opened from the Dock or Start menu don't always see the folder pipx put it in), use the full path
+instead: `~/.local/bin/bite` on Mac and Linux, `C:\Users\<you>\.local\bin\bite.exe` on Windows (`pipx list`
+shows it). The tool checks the folder Bite was started in; the AI can pass `folder` for another one, and `since`
+(for example `main`) to check a whole branch, not just what changed since the last commit.
+
+An AI that can run commands but takes no MCP servers can run `bite live` itself: it prints the same answer and
+exits with 1 when no test noticed the change. Put a line like "After you fix a bug, run `bite live` before you
+say it's fixed" in its rules file (AGENTS.md, .cursorrules, .github/copilot-instructions.md).
+
+## Ask in plain words
+
+```
+bite ask "is last week's login fix guarded?"
+```
+
+Bite finds the commit(s) that match your words (their message and the files they changed, and the time if you
+name one: today, yesterday, this week, last week, the last 10 days) and runs its free check on each. The answer
+opens in a few words, then gives a short block per commit:
+
+```
+Yes, it's guarded.
+
+✅ YES, A TEST NOTICED
+   Fix login letting an empty password in
+   3f2a9c1, Oct 27
+   With it taken out, test_empty_password_is_refused fails.
+```
+
+When no test notices a fix, its block says ⚠️ NO TEST NOTICED. Where emoji can't show (output sent to a file
+or another program, or an old Windows console) the labels are the same words without them.
+
+Matching is free. Only when your words match nothing clearly, and you have an API key, a small AI call picks the
+commit instead (about a cent); `--free` never uses the key. `--last 200` looks further back. Coding AIs get the
+same thing through `bite mcp`, as the tool `ask_bite`.
 
 ## Run it on every pull request
 
@@ -127,7 +209,7 @@ jobs:
       # install what your tests need here, e.g. for Python:
       - uses: actions/setup-python@v5
       - run: python -m pip install pytest -r requirements.txt
-      - uses: connabyss/bite@v0.6.0
+      - uses: connabyss/bite@v0.11.0
 ```
 
 Options go under `with:`: `args` (extra `bite` options, e.g. `--serious`), `max-commits` (default 20),
@@ -141,7 +223,7 @@ When no test noticed a change, Bite can write that test for you. Add your Anthro
 named `ANTHROPIC_API_KEY`, then:
 
 ```yaml
-      - uses: connabyss/bite@v0.6.0
+      - uses: connabyss/bite@v0.11.0
         with:
           write-tests: true
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -172,6 +254,47 @@ requests**. Without that tick, Bite still puts the test on its branch and the co
 yourself. GitHub doesn't run your checks on a pull request a workflow opened, so they run once you merge it into your
 branch; Bite has already run the test both ways. Not on pull requests from forks.
 
+## The comeback alarm: a fix that quietly came undone
+
+A fix with no test can be undone by a later commit, and nobody hears about it: a "simplify", a bad merge, an old
+copy pasted back. Every free check also looks at whether each fix is still in today's code. If a later commit put
+the old code back, Bite says so and names that commit:
+
+```
+  e5c329ec 🔁 UNDONE BY A LATER COMMIT   Fix totals showing long decimals like 0.30000000000000004
+
+🔁 UNDONE BY A LATER COMMIT: e5c329ec "Fix totals showing long decimals like 0.30000000000000004": Commit e8b75da4
+(“Simplify total()”) put the old code back, so this fix is gone from today's code.
+```
+
+`bite --demo comeback` shows it on a tiny made-up shop. It's free and runs no tests: Bite only checks whether the
+fix's own change would apply again to today's code (and can't be taken back out of it). It works for fixes a test
+noticed too, since a fix and its test can be deleted together. A later commit whose title says it's a revert was
+done on purpose, so that one gets a quiet note instead of the alarm. A fix rewritten into new code doesn't count as
+undone, and neither does one a later commit did another way (it took the fix's lines out but wrote its own code for
+the same thing in the same function). A revert or a tidy-up that came undone gets no alarm either. When a branch is
+merged after the undo, Bite names the commit that put the old code back, not the merge.
+
+## Results for other tools
+
+`bite --json` prints the results as JSON, for scripts, dashboards and other bots; everything else Bite says goes to
+stderr. Every run also saves them in `bite_proof/results.json`. These names stay the same from release to release
+(a change to them would bump `schema`):
+
+- `outcome`: `noticed` (a test noticed every change), `gaps` (no test noticed at least one), `undone_later` (a
+  later commit put the old code back for at least one fix), `tests_fail`, `no_tests`, `nothing_checked` or `error`
+  (`message` says why).
+- `commits`: one per commit checked, with `sha`, `subject`, `result` (`noticed`, `no_test_noticed`,
+  `its_tests_didnt_notice`, `undone_later`, `tests_fail`, `no_tests` or `skipped`), `label` and `detail` (the words
+  Bite shows), and `why`, `missing_test` or `undone_by` (`sha` and `subject` of the commit that undid it) when there
+  is one.
+- `false_done`: each claim the paid step proved false, with `sha`, `subject`, `bug` and `today`.
+- `score`: the Bite score (below), with `noticed`, `out_of` and `badge` (a README badge line). Left out when no
+  change could be checked.
+
+A commit that bundles a tested change with an untested one gets `no_test_noticed` with the label PART NOT NOTICED,
+and its `detail` names the part. [TRICKS.md](https://github.com/connabyss/bite/blob/main/TRICKS.md) has that and the other tricks we tried on Bite.
+
 ## Bite-proof badge
 
 When every change Bite checked had a test that noticed it, Bite ends with "Bite-proof. Nice work." and prints a
@@ -179,7 +302,22 @@ badge line you can paste into your README:
 
 [![Bite-proof ✅](https://img.shields.io/badge/Bite--proof-%E2%9C%85-black)](https://github.com/connabyss/bite)
 
+## Bite score
+
+Every run ends with a score: of the changes Bite could check, how many a test noticed ("Bite score: 7/9"). Changes
+it skipped, or couldn't check because the tests already fail, don't count either way. The report page shows it as
+a ring, and the pull request comment adds it in one small line. Bite also prints a badge line with the score, for
+your README:
+
+[![Bite score: 7 of 9 changes noticed by a test](https://img.shields.io/badge/Bite%20score-7%2F9%20noticed-yellowgreen)](https://github.com/connabyss/bite)
+
+Each run also saves `bite_proof/badge.json` in [shields.io's endpoint format](https://shields.io/badges/endpoint-badge),
+so a badge can follow your newest run wherever you publish that file.
+
 Prefer a gentler wording for the warnings? `bite --roast` gives the same results, phrased differently.
+
+In a hurry? `bite --quick` checks each change with two test runs, as older versions did: it skips the piece-by-piece
+check, the flaky-test rerun and the deleted-test check ([TRICKS.md](https://github.com/connabyss/bite/blob/main/TRICKS.md) says what those catch).
 
 ## Famous repos Bite has checked
 
@@ -196,7 +334,7 @@ Checked Oct 30-31, 2026 with `bite --free`. Every bug fix Bite could check had a
 by hand. Apart from the gaps above, they were things a test can't catch, like type hints, speed-ups, Windows-only
 code or rewrites that work the same.
 
-**[The full scoreboard](SCOREBOARD.md)** has 20 projects in 5 languages, with a link to every gap.
+**[The full scoreboard](https://github.com/connabyss/bite/blob/main/SCOREBOARD.md)** has 20 projects in 5 languages, with a link to every gap.
 
 ## The catch that shows what it's for
 

@@ -37,7 +37,8 @@ bite --free
 - The project's own test runner (e.g. pytest) must be installed in the environment its tests run in, or Bite
   stops and prints the install line.
 - Every run ends with a one-page report, `bite_proof/report.html`, to open in a browser.
-- Upgrade: `pipx upgrade bite-check`.
+- Update: `pipx install --force bite-check --pip-args="--no-cache-dir"` always gets the newest version (plain
+  `pipx upgrade` can miss a fresh release because pip reuses its saved list). `bite --version` says when one is out.
 
 ## What `bite` does (same as `python recent.py`)
 
@@ -47,9 +48,11 @@ bite --free
    commit added tests and they still pass without its code, they test nothing it did: "ITS TESTS DIDN'T NOTICE".
    When no commit claims a fix, Bite says so and checks only the commits that added tests (`--any`: all).
    It only takes out code in the language the tests run (pytest: Python; npm test: JavaScript or TypeScript;
-   cargo, go, dotnet: theirs). A commit that changed only other code is listed as code the tests can't run.
+   cargo, go, dotnet: theirs; Maven and Gradle: Java and Kotlin). A commit that changed only other code is listed as code the tests can't run.
    Before flagging, it rules out the usual harmless reasons and says which: a change built for another OS than
    the one it runs on, a tidy-up commit, tests that don't name the changed code, or a gap a later commit closed.
+   The comeback alarm, also free: if a later commit put a checked fix's old code back, Bite says "UNDONE BY A LATER
+   COMMIT" and names that commit (`bite --demo comeback`). A later commit that says it's a revert is only noted.
 3. Paid (your own API key), for the top suspects: a fresh worker writes one small test of the commit's own
    claim, including the odd inputs the claim covers, on a copy of the project at that commit. Bite runs the test
    itself, twice, on that commit and on today's code. A second fresh check must agree the test asks only for what the commit claimed
@@ -75,16 +78,26 @@ repo (`/plugin marketplace add connabyss/bite`, then `/plugin install bite@bite`
 that changed code: if no test notices your change, you're sent back once to add one that fails without it. Treat
 that as the person asking for the test. `/bite` runs it on demand. No key needed.
 
+## Live, in any coding AI
+
+`bite mcp` is an MCP server with one tool, `check_fix`: the same free check, for any coding AI that takes MCP servers
+(Claude Code, Cursor, Copilot in VS Code, Windsurf, Codex, Gemini CLI; setup lines for each in README.md). Call it
+after you fix something and before you tell your person it's fixed. Pass `folder` (the project you changed) when
+the server wasn't started there, and `since` to check a branch. If it says no test noticed, add a test that fails
+without your change, then call it again. "Couldn't check" is not a pass: say so. No MCP? Run `bite live`.
+
 ## Setup (once your person says yes; they only paste a key, and only for the paid step)
 
 - Python 3.10+ and git. `pipx install bite-check` gives the `bite` command (no venv
   to activate); run it inside their repo. `pipx inject bite-check claude-agent-sdk` adds the paid step's
   package. If they have no pipx: `python -m pip install --user pipx`, `python -m pipx ensurepath`, new window.
   Bite checks for git and the test runner (e.g. pytest) first and prints the install line if one is missing.
-- Optional `.bite.ini` in their repo, first line `[kit]`, then `test_command = <their test command>` (Bite
-  guesses pytest, npm test, cargo test, go test or dotnet test when it isn't set). `claim_command` runs one test
+- Optional `.bite.ini` in their repo, first line `[bite]` (older files with `[kit]` still work), then
+  `test_command = <their test command>` (Bite guesses pytest, npm test, cargo test, go test, dotnet test, Maven or Gradle when it isn't set; the project's own mvnw or gradlew first). `claim_command` runs one test
   file (`{file}`) if adding the file to test_command doesn't work for their runner. For dotnet test Bite runs
-  the claim test with `--filter "FullyQualifiedName~BiteClaim"` instead of a file path. Unity projects: their
+  the claim test with `--filter "FullyQualifiedName~BiteClaim"` instead of a file path; for Maven with
+  `-Dtest=BiteClaim*` and for Gradle with `--tests "*BiteClaim*"`, inside the claim's own module. Maven and Gradle
+  need Java (a JDK) installed. Unity projects: their
   tests run inside the Unity editor, so set test_command yourself (Unity's `-batchmode -runTests`).
 - `test_covers = Assets/Sim/*, tests/*`: the paths the test command can reach. Commits that touch none of them
   are listed as outside the tests' reach, not checked (otherwise they all look like "no test noticed").
@@ -108,14 +121,16 @@ that as the person asking for the test. `/bite` runs it on demand. No key needed
 - It needs the project's tests to run. Tests that need a full git checkout fail on its copies, so those
   commits show as "tests already fail".
 - The worker runs code the project's tests run. Without Docker, that is with your user's rights.
+- Tricks we threw at it, and the ones that still fool it: [TRICKS.md](TRICKS.md).
 
 ## Working on Bite's own code
 
 - Read [CONTRIBUTING.md](CONTRIBUTING.md). Set up with `pip install -e .[test]`, then `python -m pytest`. No key
   and no network needed; all tests must pass before and after your change.
-- One fix per PR, with a test that fails without it, and an `Assisted-by: <tool>` line in the commit message.
-  Tick the PR template's checklist honestly (screenshots in light and dark mode for anything visual).
+- One fix per PR, with a test that fails without it (for bug fixes), and an `Assisted-by: <tool>` line in the
+  commit message or PR description. Tick the PR template's checklist honestly; screenshots of visual changes
+  are welcome but not required.
 - CI runs the tests on Linux, Windows and macOS (Python 3.10 and 3.13); all six must pass to merge.
 
-Files: recent.py (the tool), live.py (the live check and the Claude Code plugin's hook; the plugin is in plugin/), bite.py (engine: settings, test running, safe copies, the command filter that keeps
+Files: recent.py (the tool), live.py (the live check and the Claude Code plugin's hook; the plugin is in plugin/), bite_mcp.py (`bite mcp`, the live check as an MCP tool), bite.py (engine: settings, test running, safe copies, the command filter that keeps
 the worker inside its copy), repo.py (git and settings helpers).

@@ -63,14 +63,19 @@ DEFAULT_FAIL = r"\bFAIL|SCRIPT ERROR|SHADER ERROR|Parse Error|parse error|ignori
 PASSED_LINE = re.compile(r"^\s*(?:[✔✓√]|âœ”|âœ“|âˆš|ok\b|PASS(?:ED)?\b|--- PASS\b)")
 
 
+def settings_section(cp) -> dict:
+    """The settings in a .bite.ini: its [bite] section, or [kit], the name it had before 0.9 (still read)."""
+    return next((cp[name] for name in ("bite", "kit") if name in cp), {})
+
+
 class Config:
     def __init__(self, path: Path = CONFIG_FILE):
         if not path.exists():
             raise SystemExit(f"No {path.name} found. Settings are optional: run bite in your repo "
-                             "to guess the test command, or create .bite.ini there with a [kit] section.")
+                             "to guess the test command, or create .bite.ini there with a [bite] section.")
         cp = configparser.ConfigParser(interpolation=None)
         cp.read(path, encoding="utf-8")
-        g = cp["kit"] if "kit" in cp else {}
+        g = settings_section(cp)
         self.project = Path(os.path.expandvars(os.path.expanduser(g.get("project_folder", "")))).resolve()
         mb = g.get("mailbox_folder", "") or str(KIT_DIR / "mailbox")
         self.mailbox = Path(os.path.expandvars(os.path.expanduser(mb))).resolve()
@@ -548,7 +553,9 @@ def make_permission(cfg: Config, log=print):
 
 DEFAULT_TEST_FILES = ["test_*", "*_test.*", "test.*", "tests.*", "*.test.*", "*.spec.*", "*_spec.*",
                       "tests/*", "test/*", "__tests__/*", "spec/*",
-                      "*tests.cs", "*test.cs", "*tests.fs", "*test.fs", "*.tests/*", "*.test/*"]  # C#/F# (.NET) names
+                      "*tests.cs", "*test.cs", "*tests.fs", "*test.fs", "*.tests/*", "*.test/*",  # C#/F# (.NET) names
+                      "*test.java", "*tests.java", "*test.kt", "*tests.kt",  # Java and Kotlin names
+                      "*test/java/*", "*test/kotlin/*"]  # Gradle's other test folders: src/integrationTest/java, src/jvmTest/kotlin
 
 
 def is_test_file(rel: str, cfg: Config) -> bool:
@@ -673,6 +680,8 @@ AUTO_COUNTS = [  # common runners' summary lines, so the test count works withou
     (r"^\s*(\d+) tests? (?:passed|failed)\b", r"^\s*(\d+) tests? (?:passed|failed)\b"),  # ava
     (r"^\s*Total:\s+(\d+)\s*$", r"(\d+)"),  # uvu
     (r"^test result: \w+\. (\d+) passed", r"(\d+) (?:passed|failed)(?=;)"),  # cargo
+    # Maven (surefire): the summary line of each module, not the per-class lines that end in "Time elapsed ..."
+    (r"^(?:\[\w+\] )?Tests run: \d+, Failures: \d+, Errors: \d+, Skipped: \d+\s*$", r"Tests run: (\d+)"),
 ]
 
 
@@ -734,10 +743,13 @@ def safe_write(root: Path, target: Path, data: bytes):
 
 LOAD_ERRORS = re.compile(r"ImportError|ModuleNotFoundError|SyntaxError|IndentationError|error(?:s)? during collection|"
                          r"Cannot find module|Parse Error|Failed to load script|could not compile|unresolved import|"
-                         r"error CS\d{4}|error FS\d{4}")
+                         r"error CS\d{4}|error FS\d{4}|"
+                         r"COMPILATION ERROR|Compilation failed|cannot find symbol|Unresolved reference|"
+                         r"^e: \S+\.kts?:", re.M)  # javac and kotlinc through Maven and Gradle
 
 
-CHECK_FAILS = re.compile(r"(?m)^\s*FAIL\b|AssertionError|\bassert\b|Expected|expected|FAILED .*::|✕|\bFAIL\b.*(?:!=|==|got|want)|panicked at")
+CHECK_FAILS = re.compile(r"(?m)^\s*FAIL\b|AssertionError|\bassert\b|Expected|expected|FAILED .*::|✕|\bFAIL\b.*(?:!=|==|got|want)|panicked at|"
+                         r"<<< FAILURE!|^\S+ > .+ FAILED$|AssertionFailedError|ComparisonFailure")  # JUnit (Maven, Gradle)
 
 
 def load_failure(out: str) -> bool:
@@ -748,25 +760,56 @@ def load_failure(out: str) -> bool:
 HASH_COMMENTS = {".py", ".pyw", ".rb", ".sh", ".gd", ".r", ".pl", ".toml", ".yaml", ".yml", ".ini", ".cfg"}
 
 
-def strip_comment(line: str, suffix: str) -> str:
-    """Cut a trailing comment the way the file's language writes one: in Python // is floor division,
-    and in any language a # or // inside a string (a URL) isn't a comment."""
-    out, quote, i = [], "", 0
+# Strings that can run over several lines, by file type: inside one, a # or // is text, not a comment.
+LONG_QUOTES = {".py": ('"""', "'''"), ".pyw": ('"""', "'''"), ".gd": ('"""',),
+               ".js": ("`",), ".jsx": ("`",), ".mjs": ("`",), ".cjs": ("`",), ".ts": ("`",), ".tsx": ("`",), ".go": ("`",),
+               ".java": ('"""',), ".kt": ('"""',), ".kts": ('"""',), ".scala": ('"""',), ".swift": ('"""',), ".cs": ('"""',),
+               ".rs": ('"',), ".rb": ('"', "'"), ".sh": ('"', "'")}
+
+
+def code_lines(text: str, suffix: str) -> list:
+    """The file's lines with their comments cut, the way the file's language writes one (in Python // is floor division), reading the whole file: a string that
+    runs over several lines (a Python triple-quoted string, a JavaScript template) keeps its # and // as text,
+    so a change inside one (a colour "#fff", a URL "http://") counts as code."""
+    longs = sorted(LONG_QUOTES.get(suffix, ()), key=len, reverse=True)
     hash_ = suffix in HASH_COMMENTS
-    while i < len(line):
-        c = line[i]
+    out, cur, quote, i, n = [], [], "", 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "\n":
+            out.append("".join(cur))
+            cur = []
+            if quote and quote not in longs:
+                quote = ""  # an ordinary string ends with its line (or never closed)
+            i += 1
+            continue
         if quote:
-            if c == "\\":
-                out.append(line[i:i + 2]); i += 2; continue
-            if c == quote:
+            if c == "\\" and not (quote == "`" and suffix == ".go"):  # Go's `raw strings` have no escapes
+                cur.append(text[i:i + 2])
+                i += 2
+                continue
+            if text.startswith(quote, i):
+                cur.append(quote)
+                i += len(quote)
                 quote = ""
-        elif c in "'\"`":
-            quote = c
-        elif (hash_ and c == "#") or (not hash_ and line.startswith("//", i)):
-            break
-        out.append(c)
+                continue
+            cur.append(c)
+            i += 1
+            continue
+        q = next((q for q in longs if text.startswith(q, i)), "") or (c if c in "'\"`" else "")
+        if q:
+            quote = q
+            cur.append(q)
+            i += len(q)
+            continue
+        if (hash_ and c == "#") or (not hash_ and text.startswith("//", i)):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        cur.append(c)
         i += 1
-    return "".join(out)
+    out.append("".join(cur))
+    return out
 
 
 def pid_alive(pid: int) -> bool:
@@ -804,6 +847,9 @@ def guess_test_command(folder: Path) -> str:
         return "cargo test"
     if (f / "go.mod").is_file():
         return "go test ./..."
+    jvm = jvm_test_command(f)
+    if jvm:
+        return jvm
     if (f / "ProjectSettings" / "ProjectVersion.txt").is_file():
         return ""  # Unity: its tests run inside the Unity editor (-runTests), not with dotnet test
     dotnet = dotnet_target(f)
@@ -812,6 +858,22 @@ def guess_test_command(folder: Path) -> str:
     if any((f / n).exists() for n in ("pytest.ini", "conftest.py", "tox.ini")) or \
             any(f.glob("test*/test_*.py")) or any(f.glob("test_*.py")) or any(f.glob("*/tests/test_*.py")):
         return ("python" if WINDOWS else "python3") + " -m pytest -q"
+    return ""
+
+
+def jvm_test_command(folder: Path) -> str:
+    """Java and Kotlin: the project's own Gradle or Maven wrapper when it has one (it pins the version the project
+    builds with), else the installed gradle or mvn. "" when the folder isn't a Gradle or Maven build."""
+    f = Path(folder)
+    gradle = any((f / n).is_file() for n in ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"))
+    if gradle or (f / "gradlew").is_file():
+        if (f / "gradlew").is_file() or (f / "gradlew.bat").is_file():
+            return ("gradlew.bat" if WINDOWS else "sh gradlew") + " test"
+        return "gradle test"
+    if (f / "pom.xml").is_file():
+        if (f / "mvnw").is_file() or (f / "mvnw.cmd").is_file():
+            return ("mvnw.cmd" if WINDOWS else "sh mvnw") + " -B test"
+        return "mvn -B test"
     return ""
 
 

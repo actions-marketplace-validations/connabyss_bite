@@ -23,7 +23,7 @@ APP_ID = "5545588"
 APP_LOGIN = "bite-check[bot]"
 MARK = "<!-- bite-welcome -->"
 HOME = "connabyss/bite"
-VERSION = "v0.6.0"
+VERSION = "v0.11.0"
 # An install on many repos at once (say "All repositories" on a big account) gets no issues at all, so the bot never
 # floods anyone. They can install it again on the repos they want.
 MAX_REPOS = 10
@@ -80,8 +80,13 @@ SETUP = {
     "C#": """      - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x""",
+    "Java": """      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'""",
 }
 SETUP["TypeScript"] = SETUP["JavaScript"]
+SETUP["Kotlin"] = SETUP["Java"]  # Maven and Gradle come with GitHub's Ubuntu machines.
 OTHER = """      # Install what your tests need here, e.g. actions/setup-python, then set test_command in a .bite.ini file
       # (see https://github.com/connabyss/bite)."""
 
