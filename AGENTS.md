@@ -102,6 +102,9 @@ without your change, then call it again. "Couldn't check" is not a pass: say so.
 - `test_covers = Assets/Sim/*, tests/*`: the paths the test command can reach. Commits that touch none of them
   are listed as outside the tests' reach, not checked (otherwise they all look like "no test noticed").
 - `free_test_command = <a faster subset>`: used by the free pass only; the claim tests still use test_command.
+  A slow suite: `--jobs 4` checks 4 changes at a time, `--shard K/N` splits one check across N machines, and
+  changes already checked with ✅ (bite_proof/checked.json) are skipped while the tests and settings stay the same
+  (`--again` checks them all).
   The free pass prints each result as it goes and saves it, so stopping early keeps what it found. Its output
   folder, bite_proof/, has its own .gitignore so it stays out of their commits.
 - Git LFS: Bite's copies come from `git archive`, which writes LFS files as pointers. Bite puts the real files

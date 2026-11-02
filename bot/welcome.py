@@ -23,7 +23,7 @@ APP_ID = "5545588"
 APP_LOGIN = "bite-check[bot]"
 MARK = "<!-- bite-welcome -->"
 HOME = "connabyss/bite"
-VERSION = "v0.11.0"
+VERSION = "v1.0.0"
 # An install on many repos at once (say "All repositories" on a big account) gets no issues at all, so the bot never
 # floods anyone. They can install it again on the repos they want.
 MAX_REPOS = 10
@@ -33,7 +33,7 @@ API = "https://api.github.com"
 # package (pip install -e .), or every copy Bite makes would import this checkout's code instead of its own. The Python
 # step installs what the project lists (pyproject.toml or setup.py), then uninstalls the project itself.
 SETUP = {
-    "Python": """      - uses: actions/setup-python@v5
+    "Python": """      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       # Add what your tests need here.
@@ -68,19 +68,19 @@ SETUP = {
               print("::warning::Couldn't install this project's test and dev lists; add them in the step above.")
           EOF
           fi""",
-    "JavaScript": """      - uses: actions/setup-node@v4
+    "JavaScript": """      - uses: actions/setup-node@v7
         with:
           node-version: 22
       # Add what your tests need here.
       - run: npm ci || npm install""",
-    "Go": """      - uses: actions/setup-go@v5
+    "Go": """      - uses: actions/setup-go@v7
         with:
           go-version: stable""",
     "Rust": """      # Rust and cargo come with GitHub's Ubuntu machines.""",
-    "C#": """      - uses: actions/setup-dotnet@v4
+    "C#": """      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 8.0.x""",
-    "Java": """      - uses: actions/setup-java@v4
+    "Java": """      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'""",
@@ -106,7 +106,7 @@ jobs:
   bite:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{{{ github.event.pull_request.head.sha }}}}
           fetch-depth: 0

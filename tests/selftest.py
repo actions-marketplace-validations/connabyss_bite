@@ -22,9 +22,9 @@ CLAUDE = "\n\nCo-Authored-By: Claude <noreply@anthropic.com>"
 OK = []
 
 
-def check(name, cond):
+def check(name, cond, detail=""):
     OK.append(bool(cond))
-    print(("ok   " if cond else "FAIL ") + name, flush=True)
+    print(("ok   " if cond else "FAIL ") + name + ("" if cond or not detail else "\n" + detail), flush=True)
 
 
 def sh(root, *a):
@@ -183,7 +183,12 @@ try:
     comment = (root / "bite_proof" / "COMMENT.md").read_text(encoding="utf-8")
     report = (root / "bite_proof" / "FREE_REPORT.md").read_text(encoding="utf-8")
     check("--write-tests: a test that passes with the change and fails without it is kept",
-          "wrote one: passes with the change, fails without it" in out and "FALSE" not in out)
+          "✅ Test written (test_bite_claim.py): passes with the change, fails without it" in out and "FALSE" not in out)
+    check("--write-tests says what it's doing at each step, in plain words",
+          "Asking Claude to write the missing test for" in out and "1 of 2: " in out
+          and "Running it twice with the change in (it must pass)" in out
+          and "Running it with the change taken out (it must fail)" in out
+          and "A second, fresh check is reading it" in out and "Spent $" in out, out)
     check("--write-tests: the pull request comment shows the test, ready to paste in",
           "🧪 The missing test" in comment and "clamp(-5, 0, 9)" in comment and "~~~~python" in comment
           and "Bite wrote below (🧪) for 1 of them" in comment and "paste in the test Bite wrote (🧪 below)" in comment)
@@ -197,8 +202,12 @@ try:
         rc, out = run(root, ["--write-tests"], no_claim_worker)
     check("--write-tests on a computer: no download line in the comment",
           "📥" not in (root / "bite_proof" / "COMMENT.md").read_text(encoding="utf-8"))
-    with patch.dict(os.environ, {"GITHUB_RUN_ID": "77", "GITHUB_REPOSITORY": "o/r"}):
+    summary = root.parent / "step_summary.md"
+    with patch.dict(os.environ, {"GITHUB_RUN_ID": "77", "GITHUB_REPOSITORY": "o/r", "GITHUB_STEP_SUMMARY": str(summary)}):
         rc, out = run(root, ["--write-tests"], no_claim_worker)
+    table = summary.read_text(encoding="utf-8") if summary.exists() else ""
+    check("on GitHub Actions, the job page gets a table of every change checked, with the test Bite wrote",
+          "| Commit | Change | Result |" in table and "❌" in table and "test written: `test_bite_claim.py`" in table)
     check("--write-tests in the Action: the comment points to the download on the run's page",
           "📥 Or download it" in (root / "bite_proof" / "COMMENT.md").read_text(encoding="utf-8")
           and "github.com/o/r/actions/runs/77" in (root / "bite_proof" / "COMMENT.md").read_text(encoding="utf-8"))

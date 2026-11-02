@@ -169,6 +169,20 @@ def test_without_a_key_it_opens_the_issue_only(tmp_path):
     assert [p for m, p, b in calls if m == "POST"] == ["repos/o/bite/issues"]
 
 
+def test_a_test_bite_wrote_and_threw_out_is_said_plainly_not_add_the_key(tmp_path):
+    report = REPORT + ("\nBite tried to write the missing test (`--write-tests`) but didn't keep it: its test failed with "
+                       "the change in.\n")
+    r, calls = run(tmp_path, report=report, test=False, BITE_HAS_KEY="true")
+    body = posted(calls, "/issues")["body"]
+    assert r.returncode == 0 and "ANTHROPIC_API_KEY" not in body.split("<details>")[0]
+    assert "Bite tried to write the missing test but didn't keep it (its test failed with the change in)" in body
+
+
+def test_with_the_key_but_no_test_written_it_doesnt_ask_for_the_key(tmp_path):
+    r, calls = run(tmp_path, test=False, BITE_HAS_KEY="true")
+    assert "ANTHROPIC_API_KEY" not in posted(calls, "/issues")["body"]
+
+
 def test_no_gap_opens_nothing(tmp_path):
     r, calls = run(tmp_path, report="", test=False)
     assert r.returncode == 0 and not calls

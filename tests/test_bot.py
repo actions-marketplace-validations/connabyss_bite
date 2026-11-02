@@ -214,3 +214,19 @@ def test_python_setup_installs_what_the_project_lists_but_not_the_project(tmp_pa
         assert "toytest==1.0" in have and "toypoetry==1.0" in have, have
     else:
         assert "needs Python 3.11" in r.stdout
+
+
+# The first major version of each action that runs on Node 24. GitHub warns on every run of an older one
+# ("Node.js 20 is deprecated"), so the workflow the welcome bot suggests must not use one (#22).
+NODE24 = {"checkout": 5, "setup-python": 6, "setup-node": 5, "setup-go": 6, "setup-dotnet": 5, "setup-java": 5}
+
+
+def test_the_suggested_workflow_uses_actions_that_run_on_node_24():
+    import re
+    seen = set()
+    for language in [*welcome.SETUP, "Other"]:
+        for name, major in re.findall(r"uses: actions/([\w-]+)@v(\d+)", welcome.workflow(language)):
+            assert name in NODE24, f"{name}: add its first Node 24 major to NODE24"
+            assert int(major) >= NODE24[name], f"{language}: actions/{name}@v{major} still runs on Node 20"
+            seen.add(name)
+    assert seen == set(NODE24)  # every language's setup step was checked

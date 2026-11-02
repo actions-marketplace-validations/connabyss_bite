@@ -1,7 +1,6 @@
 __pycache__/
 key.txt
 bite_proof/
-.bite.ini
 *.egg-info/
 build/
 .venv/

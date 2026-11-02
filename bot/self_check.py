@@ -84,6 +84,20 @@ def notices(sha: str, rel: str, test: str, at: str = "HEAD"):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def next_step(report: str, files: list) -> str:
+    """What happens next, true to what the run did: wrote the test, tried and threw it out (and why), or had no key."""
+    if files:
+        return "Bite also wrote the missing test and will open a pull request with it that closes this issue."
+    why = re.findall(r"Bite tried to write the missing test \(`--write-tests`\) but didn't keep it: (.+?)\.\n", report)
+    if why:
+        return ("Bite tried to write the missing test but didn't keep it (" + "; ".join(dict.fromkeys(why)) + "), so "
+                "no pull request this time. Write it by hand or with your coding AI: the steps are in the report "
+                "below. The next self-check tries again.")
+    if os.environ.get("BITE_HAS_KEY") == "true":
+        return "Bite didn't write the missing test this time: the steps to write it are in the report below."
+    return "To have Bite write the missing test too, add the repository secret ANTHROPIC_API_KEY."
+
+
 def reported(repo: str) -> list:
     """Every self-check issue so far, open or closed, so a gap is reported once (GitHub lists pull requests too)."""
     found = api("GET", f"repos/{repo}/issues?state=all&per_page=100&creator=github-actions%5Bbot%5D") or []
@@ -111,8 +125,7 @@ def main() -> int:
         body = (f"Bite checked its own recent commits and found {'a change' if one else f'{len(new)} changes'} that no "
                 "test noticed: with the change taken out, every test still passed.\n\n"
                 + "\n".join(f"- {sha} {title}" for sha, title in new) + "\n\n"
-                + ("Bite also wrote the missing test and will open a pull request with it that closes this issue."
-                   if files else "To have Bite write the missing test too, add the repository secret ANTHROPIC_API_KEY.")
+                + next_step(report, files)
                 + "\n\n<details><summary>Bite's report</summary>\n\n" + report[:50000] + "\n</details>\n\n"
                 + "\n".join(MARK.format(sha) for sha, _ in new) + "\n")
         issue = api("POST", f"repos/{repo}/issues", {

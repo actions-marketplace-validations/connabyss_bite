@@ -1,7 +1,8 @@
 name: self-check
 
-# Bite checks Bite: every Monday (and on Run workflow), Bite runs on this repo's own recent commits. When a change no
-# test noticed turns up, bot/self_check.py opens an issue about it, and with ANTHROPIC_API_KEY set, a pull request
+# Bite checks Bite: every Monday (and on Run workflow), Bite runs on this repo's own recent commits, one commit per
+# machine at the same time (bite --shard K/N), with the tests 4 at a time (.bite.ini). One last job gathers what the
+# machines found (bot/merge_shards.py). When a change no test noticed turns up, bot/self_check.py opens an issue about it, and with ANTHROPIC_API_KEY set, a pull request
 # with the missing test Bite wrote, which closes the issue. Each gap is reported once. Free when there's no gap;
 # the test writing uses the key and stops at --budget.
 on:
@@ -23,34 +24,88 @@ permissions:
 concurrency: self-check
 
 jobs:
-  self-check:
+  check:
     if: github.repository == 'connabyss/bite' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       # Only the test runner: Bite is installed on its own, so the tests import each copy's code.
       - run: |
-          python -m pip install pytest
+          python -m pip install pytest pytest-xdist
           pipx install .
-      - name: Bite checks Bite
+      # Commits checked with ✅ on an earlier run, with the same tests and settings, aren't run again.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: bite_proof/checked.json
+          key: bite-self-check-${{ github.run_id }}
+          restore-keys: bite-self-check-
+      - name: Bite checks Bite (part ${{ matrix.part }} of 20)
         env:
           LAST: ${{ inputs.last || '20' }}
+        run: bite --free --any --last "$LAST" --free-checks "$LAST" --part-runs 2 --shard ${{ matrix.part }}/20
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: part-${{ matrix.part }}
+          path: bite_proof/
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  report:
+    needs: check
+    if: always() && github.repository == 'connabyss/bite' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: part-*
+          path: parts/
+      - name: Gather what the machines found
+        id: gather
+        run: echo "gaps=$(python bot/merge_shards.py parts bite_proof)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        if: hashFiles('bite_proof/checked.json') != ''
+        with:
+          path: bite_proof/checked.json
+          key: bite-self-check-${{ github.run_id }}
+      # Only when there's a gap, and only for those commits: write the missing test (the key, capped by --budget).
+      - name: Write the missing tests
+        if: steps.gather.outputs.gaps != ''
+        env:
+          LAST: ${{ inputs.last || '20' }}
+          GAPS: ${{ steps.gather.outputs.gaps }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          ARGS=""
-          if [ -n "$ANTHROPIC_API_KEY" ]; then
-            pipx inject bite-check claude-agent-sdk > /dev/null
-            ARGS="--write-tests --budget 0.50"
-          fi
-          bite --free --any --last "$LAST" --free-checks "$LAST" $ARGS
+          if [ -z "$ANTHROPIC_API_KEY" ]; then echo "No ANTHROPIC_API_KEY secret: Bite opens the issue without a test."; exit 0; fi
+          echo "A machine found a change no test noticed ($GAPS). Bite checks it once more here, then asks Claude to write the missing test."
+          python -m pip install pytest pytest-xdist
+          pipx install .
+          pipx inject bite-check claude-agent-sdk > /dev/null
+          bite --free --any --last "$LAST" --free-checks "$LAST" --only "$GAPS" --write-tests --budget 0.50
       - name: Open the issue and the pull request
+        if: steps.gather.outputs.gaps != ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python bot/self_check.py
+          BITE_HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          python -m pip install pytest
+          python bot/self_check.py

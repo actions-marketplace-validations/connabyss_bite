@@ -18,9 +18,10 @@ jobs:
     # Run the Mac jobs on Intel Macs; the job names (and the required checks) stay the same.
     runs-on: ${{ matrix.os == 'macos-latest' && 'macos-15-intel' || matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -e .[test]
-      - run: python -m pytest -v
+      # 4 at a time (pytest-xdist): about 4x faster, most of all on Windows, where each test starts slower (#16).
+      - run: python -m pytest -v -n auto

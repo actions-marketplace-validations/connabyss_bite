@@ -7,9 +7,28 @@
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Bite%20free%20check-blue?logo=github)](https://github.com/marketplace/actions/bite-free-check)
 
-**Bite checks whether an AI coding agent's "fixed" is actually true.**
+**Would your tests catch it if the bug came back?**
+
+Bite checks whether an AI coding agent's "fixed" is actually true.
 
 <img alt="bite --demo: one fix is noticed by a test, the other has no test at all" src="https://raw.githubusercontent.com/connabyss/bite/main/assets/bite-demo.svg" width="760">
+
+## Why you need this
+
+When an AI fixes a bug for you, it often says "Fixed, and I added a test." If you don't read code, you can't tell
+if that's true.
+
+A test is a tiny robot that checks one thing, like "2 + 2 should be 4", and shouts when it isn't. A good test
+shouts if the bug ever comes back. A weak one stays quiet no matter what.
+
+Bite checks your robots. It puts the old bug back on purpose and watches whether any test shouts. It's like
+testing a smoke alarm with real smoke instead of trusting the little green light.
+
+If a test shouts, that fix is guarded. If they all stay quiet, the next change, by you or your AI, could bring the
+bug back and nobody would notice. Bite names that fix, so you can tell your AI: "add a test that fails without
+this fix."
+
+## How it works
 
 It takes each recent fix back out of your code and runs your tests. If they still pass, nothing guards that fix,
 and Bite tells you which one. That free check needs no key and works with pytest, npm test, cargo test, go test,
@@ -80,6 +99,33 @@ https://code.claude.com/docs/en/agent-sdk/overview). The commits Bite checks can
 Works with pytest, npm test, cargo test, go test, dotnet test, Maven and Gradle. Settings and limits: [AGENTS.md](https://github.com/connabyss/bite/blob/main/AGENTS.md),
 written so your coding AI (Claude Code, Codex, Cursor, Copilot) can set Bite up for you. To work on Bite itself: clone it, `pip install -e .[test]`, then `python -m pytest`.
 
+## When a check is slow
+
+Bite runs your tests several times for each change, so a slow test suite makes a slow check. Four ways to speed it up:
+
+- `bite --free --jobs 4` checks 4 changes at a time. If two checks get in each other's way (a shared file, a port),
+  Bite runs the failed one again on its own before it counts, so a clash never shows up as a result.
+- Bite remembers the changes it checked with ✅ in `bite_proof/checked.json`, and skips them next time when the
+  tests, settings and dependency files (requirements.txt, package-lock.json, go.sum, ...) are the same. Add,
+  change or delete a test, or update a library, and those changes are checked again. `--again`
+  checks everything anyway. The Action keeps that memory between runs for you.
+- `bite --free --shard 2/5` runs part 2 of 5. Run parts 1/5 to 5/5 on 5 machines at once and together they check
+  every change, in about a fifth of the time. On GitHub Actions that's a matrix:
+
+  ```yaml
+  strategy:
+    matrix:
+      part: [1, 2, 3, 4, 5]
+  steps:
+    # ... check out and install, as usual
+    - run: bite --free --shard ${{ matrix.part }}/5
+  ```
+
+- pytest: install pytest-xdist and put `test_command = python -m pytest -n auto` in `.bite.ini` to run the tests
+  themselves 4 at a time. Or point `free_test_command` at a faster part of your tests.
+
+When each change takes over 3 minutes, Bite prints these tips at the end of the run.
+
 ## Updating Bite
 
 `bite --version` prints your version, and when a newer one is out it says so and gives you the line to paste.
@@ -94,6 +140,9 @@ Installed with pip instead of pipx? `python -m pip install --upgrade --no-cache-
 Why not just `pipx upgrade bite-check`? Right after a release, pip can keep using the list of versions it saved
 earlier and say you're already on the latest. `--no-cache-dir` makes it ask PyPI fresh, and `--force` also replaces
 an older `bite` or `bite.exe` that's in the way.
+
+What changed in each version: [CHANGELOG.md](https://github.com/connabyss/bite/blob/main/CHANGELOG.md). Which languages,
+test runners and places Bite works in: [SUPPORTS.md](https://github.com/connabyss/bite/blob/main/SUPPORTS.md).
 
 ## Check Claude's "fixed" live, in Claude Code
 
@@ -202,14 +251,14 @@ jobs:
   bite:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
       # install what your tests need here, e.g. for Python:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
       - run: python -m pip install pytest -r requirements.txt
-      - uses: connabyss/bite@v0.11.0
+      - uses: connabyss/bite@v1.0.0
 ```
 
 Options go under `with:`: `args` (extra `bite` options, e.g. `--serious`), `max-commits` (default 20),
@@ -223,7 +272,7 @@ When no test noticed a change, Bite can write that test for you. Add your Anthro
 named `ANTHROPIC_API_KEY`, then:
 
 ```yaml
-      - uses: connabyss/bite@v0.11.0
+      - uses: connabyss/bite@v1.0.0
         with:
           write-tests: true
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -311,8 +360,49 @@ your README:
 
 [![Bite score: 7 of 9 changes noticed by a test](https://img.shields.io/badge/Bite%20score-7%2F9%20noticed-yellowgreen)](https://github.com/connabyss/bite)
 
+Next to the report page, `bite_proof/card.svg` is the score as a picture (1200x630, the size link previews use), with
+the Bite cat, to drop into a post or a chat.
+
+Bite remembers each run's score in `bite_proof/scores.json` and says how it moved: "up from 5/9 last run", "down
+from 8/9 last run", or "Bite-proof 3 runs in a row". A rerun at the same commit doesn't count twice, and pull request
+checks (`--since`) aren't remembered, since they look at different commits.
+
 Each run also saves `bite_proof/badge.json` in [shields.io's endpoint format](https://shields.io/badges/endpoint-badge),
 so a badge can follow your newest run wherever you publish that file.
+
+**A badge that keeps itself up to date (the Action, opt-in):** on every push to main, Bite checks your newest commits
+and keeps the score on a branch of its own, `bite-badge`, which holds only `badge.json`. Add this as
+`.github/workflows/bite-badge.yml`:
+
+```yaml
+name: bite-badge
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write        # only for the bite-badge branch
+jobs:
+  badge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # install what your tests need here, as in the pull request check
+      - uses: connabyss/bite@v1.0.0
+        with:
+          badge-branch: bite-badge
+          max-commits: 10
+```
+
+The job's summary page then shows the badge line for your README (put your own owner/repo in it):
+
+```
+[![Bite score](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOWNER%2FREPO%2Fbite-badge%2Fbadge.json)](https://github.com/connabyss/bite)
+```
+
+Bite makes the branch on the first run, and never touches a branch that holds anything else. On a push run the check
+never fails; it only updates the badge.
 
 Prefer a gentler wording for the warnings? `bite --roast` gives the same results, phrased differently.
 

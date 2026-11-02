@@ -7,8 +7,11 @@ Thanks for helping. Bite is small on purpose, so the best PRs are small too.
 ```
 git clone https://github.com/connabyss/bite && cd bite
 pip install -e .[test]
-python -m pytest
+python -m pytest -n auto
 ```
+
+`-n auto` runs the tests several at a time (pytest-xdist, in `[test]`): about a minute instead of three, and
+much faster on Windows. Plain `python -m pytest` runs them one at a time.
 
 The tests need no key and no network. They should all pass before and after your change.
 

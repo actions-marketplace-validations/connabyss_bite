@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bite-check"
-version = "0.11.0"
+version = "1.0.0"
 description = "Checks whether the \"fixed\" in your coding agent's recent commits is actually true."
 readme = "README.md"
 license = "MIT"
@@ -23,7 +23,7 @@ classifiers = [
 
 [project.optional-dependencies]
 paid = ["claude-agent-sdk"]
-test = ["pytest"]
+test = ["pytest", "pytest-xdist"]
 
 [project.scripts]
 bite = "recent:main"

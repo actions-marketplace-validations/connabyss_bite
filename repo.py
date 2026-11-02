@@ -1,5 +1,6 @@
 """Shared helpers for recent.py: git, finding the repo, and reading the settings file (.bite.ini)."""
 
+import configparser
 import os
 import re
 import subprocess
@@ -40,7 +41,19 @@ def git(root, *args, raw=False):
     return r.stdout if raw else r.stdout.decode("utf-8", "replace").strip()
 
 
+SHALLOW = ("This is a shallow clone (git clone --depth): it holds only the newest commits, and the oldest of them "
+           "has no parent here, so Bite can't see what it changed. Get the whole history with: git fetch --unshallow")
+
+
+def shallow(root: Path) -> bool:
+    """The repository is a shallow clone: its oldest commit's parent wasn't downloaded."""
+    return (git(root, "rev-parse", "--is-shallow-repository") or "") == "true"
+
+
 def repo_root(start) -> Path | None:
+    """The top folder of the git repository start is in; None when it isn't in one, or isn't a folder at all."""
+    if not isinstance(start, (str, os.PathLike)) or not Path(start).is_dir():
+        return None
     top = git(start, "rev-parse", "--show-toplevel")
     return Path(top).resolve() if top else None
 
@@ -53,7 +66,8 @@ def state_dir(root: Path) -> Path:
 
 def load_cfg(root: Path):
     ini = Path(os.environ["BITE_CONFIG"]) if os.environ.get("BITE_CONFIG") else root / ".bite.ini"
-    if ini.is_file() and not re.search(r"(?m)^\s*\[(?:bite|kit)\]\s*$", ini.read_text(encoding="utf-8", errors="replace")):
+    # utf-8-sig: Windows Notepad starts a UTF-8 file with an invisible mark (a BOM), which would hide the [bite] line.
+    if ini.is_file() and not re.search(r"(?m)^\s*\[(?:bite|kit)\]\s*$", ini.read_text(encoding="utf-8-sig", errors="replace")):
         raise ConfigError(f"{ini.name} has no [bite] section, so none of its settings are read. "
                           "Put [bite] on the first line.")
     if not ini.is_file():
@@ -63,7 +77,23 @@ def load_cfg(root: Path):
                        f"test_command = {bite.guess_test_command(root)}\n"
                        f"bite_copy_ignore = {', '.join(COPY_IGNORE)}\n"
                        "planted_bugs = 4\nplanted_bugs_seconds = 120\ntest_timeout_seconds = 300\n", encoding="utf-8")
-    cfg = bite.Config(ini)
+    try:
+        cfg = bite.Config(ini)
+    except configparser.Error as e:  # a setting written twice, a line that isn't "name = value"
+        why = (f"{e.option} is set twice (line {e.lineno})" if isinstance(e, configparser.DuplicateOptionError) else
+               f"[{e.section}] is there twice" if isinstance(e, configparser.DuplicateSectionError) else
+               "a line isn't in the form name = value" if isinstance(e, configparser.ParsingError) else
+               type(e).__name__)
+        raise ConfigError(f"Bite can't read {ini.name}: {why}. Fix that line and run Bite again.") from None
+    except ValueError as e:  # a number setting that isn't a number
+        raise ConfigError(f"Bite can't read {ini.name}: a setting that needs a number has {str(e).split(': ', 1)[-1]}. "
+                          "Fix it, or take that line out to use the default.") from None
+    if cfg.test_timeout <= 0:
+        raise ConfigError(f"In {ini.name}, test_timeout_seconds needs a number of seconds above 0 (it's "
+                          f"{cfg.test_timeout}): with it, every test run would stop before it starts.")
+    if cfg.contain and "{cmd}" not in cfg.contain:
+        raise ConfigError(f"In {ini.name}, contain_command needs {{cmd}} where the test command goes. Without it the "
+                          "tests never run in the box, and every change would look unnoticed.")
     cfg.project = root
     for name in COPY_IGNORE:
         if name not in cfg.copy_ignore:
