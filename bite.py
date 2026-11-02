@@ -659,9 +659,28 @@ def locked_run(cfg: Config, cmd: str, cwd: Path, lane: str = ""):
     if why:
         return None, f"not run: {why}"
     try:
-        return run_cmd(contain(cfg, cmd, cwd), cwd, cfg.test_timeout)
+        return run_cmd(contain(cfg, cmd, cwd), cwd, run_limit(cfg))
     finally:
         lock.release()
+
+
+# A run with a change taken out that takes this many times as long as the run with it in (and at least
+# HANG_FLOOR seconds) is a hang: an unbounded loop the change had bounded, say. Waiting out test_timeout for it
+# (10 minutes by default, and the flaky rerun and the piece check wait again) stalled whole runs.
+HANG_TIMES, HANG_FLOOR = 5, 60
+
+
+def run_limit(cfg) -> int:
+    """How long one test run may take: test_timeout, or less once cap_hang has seen how long the tests take."""
+    cap = getattr(cfg, "hang_cap", 0)
+    return min(cfg.test_timeout, cap) if cap else cfg.test_timeout
+
+
+def cap_hang(cfg, now: dict) -> None:
+    """The tests took now["secs"] with the change in. Later runs on this copy (the change taken out) stop at
+    HANG_TIMES that, so a change whose removal makes the tests hang shows as noticed in a minute or two."""
+    if now.get("secs") is not None:
+        cfg.hang_cap = max(HANG_FLOOR, int(HANG_TIMES * now["secs"]) + 1)
 
 
 EXTRA_ENV = {}  # e.g. BITE_PERSONA and BITE_OUT for a crowd run
@@ -712,11 +731,14 @@ def exit_why(cmd: str, rc: int) -> str:
 
 def run_tests(cfg: Config, folder: Path) -> dict:
     cmd = tests_cmd(cfg).replace("{project}", str(folder)).replace("{seed}", SEED[0])
+    start = time.monotonic()
     rc, out = locked_run(cfg, cmd, folder)
+    secs = round(time.monotonic() - start, 1)
     if rc is None:
-        why = out if out.startswith("not run:") else f"timed out after {cfg.test_timeout}s (test_command must exit on its own)"
-        return {"ok": False, "why": why,
-                "fails": [], "count": None, "out": out}
+        hung = not out.startswith("not run:")
+        why = f"timed out after {run_limit(cfg)}s (test_command must exit on its own)" if hung else out
+        return {"ok": False, "why": why, "fails": [], "count": None, "out": out, "hung": hung,
+                "secs": secs if hung else None}
     fails = [ln.strip() for ln in out.splitlines() if re.search(cfg.fail_pattern, ln) and not PASSED_LINE.match(ln)]
     count = None
     if cfg.count_pattern:
@@ -726,7 +748,7 @@ def run_tests(cfg: Config, folder: Path) -> dict:
         count = auto_count(out)
     ok = rc in cfg.ok_codes and not fails and (count is None or count > 0)
     why = (exit_why(cmd, rc) if rc else "") or (fails[0][:160] if fails else "") or ("no tests ran" if count == 0 else "")
-    return {"ok": ok, "why": why, "fails": fails, "count": count, "out": out}
+    return {"ok": ok, "why": why, "fails": fails, "count": count, "out": out, "secs": secs}
 
 
 def safe_write(root: Path, target: Path, data: bytes):

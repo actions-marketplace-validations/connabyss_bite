@@ -3,6 +3,19 @@
 What changed in each Bite release, newest first. Numbers link to the pull request on
 github.com/connabyss/bite. Install or update: `pipx install --force bite-check --pip-args="--no-cache-dir"`.
 
+## 1.0.1 (2026-11-02)
+
+Fixed:
+- A hung test run stops early. Undoing a fix that bounds a loop can make the tests loop forever, and Bite used to wait
+  out the full test_timeout (10 minutes) several times for one change. Now, once the tests have passed with the change
+  in, a run without it stops at 5 times that length (at least 60 seconds). That counts as the tests noticing the
+  change, and the report says so: "Without this change your tests hang (stopped after 66s; they take 13s with it)".
+  Same in `bite live` and `bite mcp`. On Scrapling, two loop fixes went from most of an hour to 3.6 minutes (#145).
+- With `--jobs`, a failing run is repeated alone only if another run overlapped it, and the flaky rerun serves as that
+  repeat. A noticed change costs three test runs again, not five (#145).
+- The log says what each test run is ("running the tests with the change taken out (they took 1m 25s with it
+  in)..."), so a long check no longer goes quiet (#145).
+
 ## 1.0.0 (2026-11-02)
 
 The first stable release. The names in results.json and `--json` stay as they are from here on.

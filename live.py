@@ -112,12 +112,14 @@ def check(root: Path, base: str = "HEAD") -> dict:
             return {**r, "status": "cant", "why": f"the tests fail with the change in ({now['why']})"}
         if recent.ran_nothing(bite.tests_cmd(fcfg), now["out"]):
             return {**r, "status": "cant", "why": "no tests ran"}
+        bite.cap_hang(fcfg, now)
         recent.take_out(root, {"code": code, "before": base}, folder)
         out = bite.run_tests(fcfg, folder)
         if out["ok"]:
             test_code = [n for n in tests if Path(n).suffix.lower() in repo.CODE_SUFFIXES]
             return {**r, "status": "tests_blind" if test_code else "unguarded", "test_code": test_code}
-        return {**r, "status": "guarded", "caught": recent.caught_by(out["out"])}
+        caught = recent.caught_by(out["out"])
+        return {**r, "status": "guarded", "caught": caught, "hang": "" if caught else recent.hang_note(out, now)}
     finally:
         shutil.rmtree(folder.parent, ignore_errors=True)
 
@@ -134,6 +136,9 @@ def say(r: dict) -> str:
         return "Bite: no code your tests run has changed, so there's nothing to check."
     if s == "cant":
         return f"Bite couldn't check this change: {r['why']}."
+    if s == "guarded" and r.get("hang"):
+        return (f"Bite ✅ the tests noticed: with the change to {files(r['code'])} taken out, they hang "
+                f"({r['hang']}).")
     if s == "guarded":
         who = f" ({r['caught']})" if r.get("caught") else ""
         return f"Bite ✅ a test noticed: with the change to {files(r['code'])} taken out, the tests fail{who}."
