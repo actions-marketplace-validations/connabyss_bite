@@ -1770,9 +1770,12 @@ def one_process(cmd: str) -> str:
     """A pytest command for a few tests, without pytest-xdist's -n (and the --dist that goes with it): starting
     its workers took longer than the few tests themselves. They run the same in one process."""
     head, sep, rest = cmd.partition(" -- ")  # what follows -- belongs to another tool (npm test -- -n 3)
-    if not PYTEST_RUNNER.search(head) or not re.search(r"\s(?:-n|--numprocesses)", head):
+    runner = PYTEST_RUNNER.search(head)
+    if not runner:
         return cmd
-    return XDIST.sub("", head) + sep + rest
+    # only pytest's own options, after the pytest word: uv run -n (no cache) and xvfb-run -n 99 come before it
+    before, after = head[:runner.end()], head[runner.end():]
+    return before + XDIST.sub("", after) + sep + rest
 
 
 PYTEST_FILE = re.compile(r"(?:test_[^/]*|[^/]*_test)\.py$")

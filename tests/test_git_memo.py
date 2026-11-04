@@ -58,3 +58,19 @@ def test_questions_about_things_that_move_are_asked_every_time(tmp_path, monkeyp
 def test_the_practice_projects_pytest_runs_load_no_plugins():
     # set for this suite by conftest.py: each practice pytest start skips importing pytest-xdist and other plugins
     assert os.environ.get("PYTEST_DISABLE_PLUGIN_AUTOLOAD") == "1"
+
+
+def test_a_failed_question_is_asked_again(tmp_path, monkeypatch):
+    sha = make(tmp_path)
+    objects = tmp_path / ".git" / "objects"
+    hidden = tmp_path / "objects_away"
+    objects.rename(hidden)  # git can't read for a moment (an antivirus scan, a network drive hiccup)
+    assert repo.git(tmp_path, "cat-file", "blob", f"{sha}:a.py") is None
+    hidden.rename(objects)
+    assert repo.git(tmp_path, "cat-file", "blob", f"{sha}:a.py") == "x = 1"
+
+
+def test_a_range_is_never_kept():
+    sha = "a" * 40
+    assert repo.fixed(("diff-tree", sha))
+    assert not repo.fixed(("show", f"{sha}..main"))  # main can move

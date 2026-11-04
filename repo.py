@@ -42,7 +42,7 @@ _ASKED: dict = {}
 
 
 def fixed(args) -> bool:
-    if not args or args[0] not in FIXED or any("HEAD" in a for a in args):
+    if not args or args[0] not in FIXED or any("HEAD" in a or ".." in a for a in args):  # a range may end at a branch
         return False
     revs = [a for a in args[1:args.index("--") if "--" in args else len(args)]
             if not a.startswith("-") and a not in ("blob", "tree", "commit")]
@@ -57,7 +57,7 @@ def git(root, *args, raw=False):
         r = _ASKED[key]
     else:
         r = subprocess.run(["git", *args], cwd=root, capture_output=True)
-        if key:
+        if key and r.returncode == 0:  # an error (a file locked for a moment) is asked again next time
             _ASKED[key] = r
     if r.returncode != 0:
         return None

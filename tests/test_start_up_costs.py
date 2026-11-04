@@ -32,6 +32,9 @@ def test_a_few_tests_rerun_in_one_process():
         assert recent.one_process(cmd) == cmd, cmd
     assert recent.one_process(r"C:\venv\Scripts\pytest.exe -n 4 x.py") == r"C:\venv\Scripts\pytest.exe x.py"
     assert recent.one_process("py.test -n 4 x.py -- -n 2") == "py.test x.py -- -n 2"  # after --: not pytest's
+    # flags before the pytest word belong to the tool that starts it
+    assert recent.one_process("uv run -n pytest -q -n auto tests/a.py") == "uv run -n pytest -q tests/a.py"
+    assert recent.one_process("xvfb-run -n 99 python -m pytest -n 4 t.py") == "xvfb-run -n 99 python -m pytest t.py"
 
 
 def project(tmp_path):
