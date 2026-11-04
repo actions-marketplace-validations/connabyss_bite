@@ -3182,7 +3182,16 @@ def main(argv=None):
     seen = len(cs)
     top = cs[0]["sha"] if cs else ""  # the newest commit of all, even one that changed no code
     if only:  # the commits named, wherever they are in the history
-        cs = commits(root, 0, named=only) or cs
+        named_commits = commits(root, 0, named=only)
+        missing = [name for name in only if not any(c["sha"].startswith(name) for c in named_commits)]
+        if missing:
+            if len(missing) == 1:
+                message = f"Bite: there's no commit {missing[0]} in this repository."
+            else:
+                message = f"Bite: there are no commits {', '.join(missing)} in this repository."
+            print(message + " Check the id with git log --oneline.")
+            return 2
+        cs = named_commits or cs
     for c in cs:
         files_of(root, c, cfg)
     other = [c for c in cs if c["other_lang"] and not c["code"]]
