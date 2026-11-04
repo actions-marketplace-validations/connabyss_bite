@@ -9,7 +9,7 @@ permissions:
 
 # Bite checks each commit of a pull request with the whole suite (about 1 min 45 sec a commit here), and this 4-core
 # machine is already full with the tests running 4 at a time (.bite.ini), so 2 commits at once on one machine only
-# made each wait on the other. So each commit gets a machine of its own (up to 20, bite --shard K/N), and the
+# made each wait on the other. So each commit gets a machine of its own (up to 10, bite --shard K/N), and the
 # last job, named bite like the check always was, gathers them: every ✅ a machine found is remembered, so the
 # action checks only what's left (a change no test noticed, or tests that fail) and writes the one comment.
 # 17 commits went from about 30 minutes on one machine to about as long as the slowest one.
@@ -23,9 +23,10 @@ jobs:
       - id: n
         env:
           COMMITS: ${{ github.event.pull_request.commits }}
-        # One part per commit, at most 20 (the action's max-commits), at least 1.
+        # One part per commit, at least 1 and at most 10 machines: past 10, a machine takes 2 of the action's 20
+        # commits, so a big pull request doesn't hold 20 machines (each with its own ~20 sec set-up).
         run: |
-          n=$COMMITS; [ "${n:-0}" -lt 1 ] && n=1; [ "$n" -gt 20 ] && n=20
+          n=$COMMITS; [ "${n:-0}" -lt 1 ] && n=1; [ "$n" -gt 10 ] && n=10
           echo "total=$n" >> "$GITHUB_OUTPUT"
           echo "parts=[$(seq 1 "$n" | paste -sd, -)]" >> "$GITHUB_OUTPUT"
 

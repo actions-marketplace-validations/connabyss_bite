@@ -33,8 +33,32 @@ class ConfigError(Exception):
 
 # ---- git -----------------------------------------------------------------------
 
+SHA = re.compile(r"\b[0-9a-f]{40}\b")
+# What git says about fixed commits never changes: the same question asked again in one run (Bite asked for the same
+# file of the same commit up to 7 times) gets the first answer, without starting git again. Only questions that name
+# commits by their full id and nothing that moves (HEAD, a branch, the working tree) are kept.
+FIXED = {"cat-file", "show", "diff-tree", "ls-tree", "diff"}
+_ASKED: dict = {}
+
+
+def fixed(args) -> bool:
+    if not args or args[0] not in FIXED or any("HEAD" in a for a in args):
+        return False
+    revs = [a for a in args[1:args.index("--") if "--" in args else len(args)]
+            if not a.startswith("-") and a not in ("blob", "tree", "commit")]
+    if args[0] == "diff":  # a diff of one commit against the working tree changes as the files do
+        return len(revs) == 2 and all(SHA.match(r) for r in revs)
+    return bool(revs) and all(SHA.match(r) for r in revs)
+
+
 def git(root, *args, raw=False):
-    r = subprocess.run(["git", *args], cwd=root, capture_output=True)
+    key = (str(root), args) if fixed(args) else None
+    if key in _ASKED:
+        r = _ASKED[key]
+    else:
+        r = subprocess.run(["git", *args], cwd=root, capture_output=True)
+        if key:
+            _ASKED[key] = r
     if r.returncode != 0:
         return None
     return r.stdout if raw else r.stdout.decode("utf-8", "replace").strip()

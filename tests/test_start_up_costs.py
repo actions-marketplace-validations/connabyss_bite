@@ -26,6 +26,12 @@ def test_a_few_tests_rerun_in_one_process():
         assert recent.one_process(cmd) == "pytest x.py", cmd
     assert recent.one_process("pytest -q x.py") == "pytest -q x.py"  # nothing to drop
     assert recent.one_process("npm test -- -n 3") == "npm test -- -n 3"  # not pytest: left alone
+    # only when pytest itself runs the tests: a word "pytest" elsewhere in the line isn't enough
+    for cmd in ("tox -e pytest -- -n 4 x.py", "make test-pytest -n 2", "nox -s pytest_all -n 4",
+                "./run_pytests.sh -n 4"):
+        assert recent.one_process(cmd) == cmd, cmd
+    assert recent.one_process(r"C:\venv\Scripts\pytest.exe -n 4 x.py") == r"C:\venv\Scripts\pytest.exe x.py"
+    assert recent.one_process("py.test -n 4 x.py -- -n 2") == "py.test x.py -- -n 2"  # after --: not pytest's
 
 
 def project(tmp_path):

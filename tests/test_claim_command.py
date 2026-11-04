@@ -1,6 +1,7 @@
 """The test Bite or its worker writes runs with the project's own pytest command, minus its folders, plus that one
 file. Options keep their values: `-n auto` used to lose its `auto`, so every written test failed to start (#142)."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -34,5 +35,6 @@ def test_a_written_test_runs_under_pytest_xdist(tmp_path):
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_bite_claim.py").write_text("def test_ok():\n    assert True\n")
     cmd = claim(tmp_path, f"{sys.executable} -m pytest -q -n auto -p no:cacheprovider")
-    p = subprocess.run(cmd.split(), cwd=tmp_path, capture_output=True, text=True)
+    env = {k: v for k, v in os.environ.items() if k != "PYTEST_DISABLE_PLUGIN_AUTOLOAD"}  # this one needs xdist
+    p = subprocess.run(cmd.split(), cwd=tmp_path, capture_output=True, text=True, env=env)
     assert p.returncode == 0 and "1 passed" in p.stdout, p.stdout + p.stderr
