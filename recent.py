@@ -2064,11 +2064,15 @@ class heartbeat:
         def beat():
             while not self.stop.wait(self.every):
                 step(f"... still working ({round((time.time() - t0) / 60)} min, ${SPENT[0]:.2f} so far)")
-        threading.Thread(target=beat, daemon=True).start()
+        self.thread = threading.Thread(target=beat, daemon=True)
+        self.thread.start()
         return self
 
     def __exit__(self, *exc):
         self.stop.set()
+        # Wait for a line already on its way: printed after the step ended, it reads as if the step still runs
+        # (and on a slow Windows CI machine it landed in the next step's output).
+        self.thread.join(timeout=5)
 
 
 def try_guard(root: Path, c: dict, cfg, budget: float) -> dict:

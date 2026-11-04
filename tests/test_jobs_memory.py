@@ -136,3 +136,18 @@ def test_a_slow_step_shows_it_is_still_working(capsys):
         pass
     t.sleep(0.2)
     assert "still working" not in capsys.readouterr().out  # it stops when the step is done
+
+
+def test_no_still_working_line_after_the_step_ends(monkeypatch, capsys):
+    # Windows CI, 2026-11-04: a "still working" line already on its way printed after the step ended. The step's
+    # end now waits for it. Here the line takes 0.2 s to print, so without that wait it lands after the end.
+    sys.path.insert(0, str(KIT))
+    import recent
+    import time as t
+    real = recent.step
+    monkeypatch.setattr(recent, "step", lambda msg: (t.sleep(0.2), real(msg)))
+    with recent.heartbeat(every=0.05):
+        t.sleep(0.07)
+    capsys.readouterr()
+    t.sleep(0.4)
+    assert "still working" not in capsys.readouterr().out
