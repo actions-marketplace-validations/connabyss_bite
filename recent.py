@@ -74,7 +74,6 @@ must use API keys. The commits it checks can come from any coding AI or person.
 """
 
 import ast
-import asyncio
 import difflib
 import fnmatch
 import io
@@ -1686,6 +1685,7 @@ def worker(cfg, folder: Path, c: dict, diff: str, budget: float) -> dict:
                               can_use_tool=bite.make_permission(wcfg, log=lambda *a: None), permission_mode="default",
                               setting_sources=[], env={"ANTHROPIC_API_KEY": bite.load_key()})
     prompt = f"Commit message:\n{c['subject']}\n\n{c['body']}\n\nThe code change in it:\n{diff}"
+    import asyncio  # here, not at the top: only the paid step needs it, and it's 2/3 of Bite's start-up
     text, _ = asyncio.run(_agent(opts, prompt))
     return last_json(text)
 
@@ -1701,6 +1701,7 @@ def judge(cfg, c: dict, diff: str, test: str, fail: str) -> dict:
                               env={"ANTHROPIC_API_KEY": bite.load_key()},
                               system_prompt="You check another checker's work. Default to NOT when unsure.")
     msg = f"{c['subject']}\n\n{c['body']}"[:3000]
+    import asyncio  # here, not at the top: only the paid step needs it, and it's 2/3 of Bite's start-up
     text, _ = asyncio.run(_agent(opts, JUDGE_PROMPT.format(msg=msg, diff=diff[:8000], test=test[:4000], fail=fail[:3000])))
     return last_json(text)
 
@@ -1753,9 +1754,20 @@ def failed_only(fcfg, folder: Path, out: str):
     if not fast:
         return None
     sub = at(fcfg, folder)
-    sub.test_cmd = fast
+    sub.test_cmd = one_process(fast)
     sub.box_test_cmd = ""
     return sub
+
+
+XDIST = re.compile(r"\s(?:-n|--numprocesses)(?:=|\s+)?(?!-)\S+|\s--dist(?:=|\s+)\S+")
+
+
+def one_process(cmd: str) -> str:
+    """A pytest command for a few tests, without pytest-xdist's -n (and the --dist that goes with it): starting
+    its workers took longer than the few tests themselves. They run the same in one process."""
+    if "pytest" not in cmd or not re.search(r"\s(?:-n|--numprocesses)", cmd):
+        return cmd
+    return XDIST.sub("", cmd)
 
 
 PYTEST_FILE = re.compile(r"(?:test_[^/]*|[^/]*_test)\.py$")
@@ -1825,7 +1837,7 @@ def own_tests(fcfg, folder: Path, c: dict):
     if roots and not all(any(f == r or f.startswith(r + "/") for r in roots) for f in files):
         return None
     sub = at(fcfg, folder)
-    sub.test_cmd = pytest_one_file(cmd, " ".join(f'"{f}"' for f in files), Path(folder))
+    sub.test_cmd = one_process(pytest_one_file(cmd, " ".join(f'"{f}"' for f in files), Path(folder)))
     sub.box_test_cmd = ""
     return sub
 
@@ -2053,6 +2065,7 @@ def guard_judge(cfg, c: dict, diff: str, test: str, fail: str) -> dict:
                               env={"ANTHROPIC_API_KEY": bite.load_key()},
                               system_prompt="You check another checker's work. Default to NOT when unsure.")
     msg = f"{c['subject']}\n\n{c['body']}"[:3000]
+    import asyncio  # here, not at the top: only the paid step needs it, and it's 2/3 of Bite's start-up
     text, _ = asyncio.run(_agent(opts, GUARD_JUDGE_PROMPT.format(msg=msg, diff=diff[:8000], test=test[:4000], fail=fail[:3000])))
     return last_json(text)
 
@@ -2066,6 +2079,7 @@ def guard_worker(cfg, folder: Path, c: dict, diff: str, budget: float) -> dict:
     prompt = f"Commit message:\n{c['subject']}\n\n{c['body']}\n\nThe code change in it:\n{diff}"
     if c.get("part"):
         prompt += f"\n\nThe project's tests already notice the rest of this change. The part no test notices: {c['part']}. Test that part."
+    import asyncio  # here, not at the top: only the paid step needs it, and it's 2/3 of Bite's start-up
     text, _ = asyncio.run(_agent(opts, prompt))
     return last_json(text)
 

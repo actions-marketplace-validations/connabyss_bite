@@ -5,6 +5,11 @@ github.com/connabyss/bite. Install or update: `pipx install --force bite-check -
 
 ## Unreleased
 
+- Bite starts faster: asyncio (2/3 of its start-up) loads only for the paid step. The quick reruns of a few tests
+  (the commit's own tests, the tests that failed) run in one process instead of starting pytest-xdist's workers
+  for them. Same tests, same results; about a second saved per commit, more on Windows.
+- Bite's own pull request check: a one-commit pull request is checked by the bite job alone, without a part
+  machine first (~20 sec of set-up).
 - Bite's own self-test (tests/selftest.py, 139 checks) runs in 10 parts side by side under pytest instead of one
   50-second process; `python tests/selftest.py` still runs it all at once. CI prints the 20 slowest tests.
 - Bite's own pull request check gives each commit a machine of its own (up to 20) instead of 6 shared ones, so
