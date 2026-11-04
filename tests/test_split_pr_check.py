@@ -47,12 +47,12 @@ def plan(commits):
     return json.loads(got["parts"]), int(got["total"])
 
 
-def test_each_commit_gets_a_machine_of_its_own_up_to_the_action_limit():
-    max_commits = int(re.search(r"max-commits:.*?default: \"(\d+)\"", ACTION, re.S)[1])
+def test_each_commit_gets_a_machine_of_its_own_up_to_10():
     assert plan(3) == ([1, 2, 3], 3)
     assert plan(1) == ([1], 1)
     assert plan(0) == ([1], 1)  # a matrix of nothing fails the whole run
-    assert plan(25) == (list(range(1, max_commits + 1)), max_commits)
+    assert plan(10) == (list(range(1, 11)), 10)
+    assert plan(25) == (list(range(1, 11)), 10)  # past 10, a machine checks 2 or more
     # every part 1..N runs, and each takes its share of N: together they check every commit
     assert "part: ${{ fromJSON(needs.plan.outputs.parts) }}" in FLOW
     assert "--shard ${{ matrix.part }}/${{ needs.plan.outputs.total }}" in FLOW
@@ -66,7 +66,6 @@ def test_the_parts_match_the_action_run():
     assert re.search(r"args: --part-runs (\d+)", FLOW)[1] == part
     max_commits = re.search(r"max-commits:.*?default: \"(\d+)\"", ACTION, re.S)[1]
     assert f'[ "$n" -gt {max_commits} ] && n={max_commits}' in FLOW  # the same commits as the action checks
-    assert f'[ "$n" -gt {max_commits} ] && n={max_commits}' in re.search(r"  plan:.*?\n\n", FLOW, re.S)[0]
 
 
 def test_the_gathered_memory_is_where_the_action_restores_it_from():

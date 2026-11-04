@@ -60,6 +60,41 @@ def test_only_finds_a_commit_older_than_the_last_ones_looked_at(tmp_path):
     assert got == {shas[0][:8]}, out
 
 
+def test_only_rejects_an_unknown_commit_id(tmp_path):
+    root, _ = make(tmp_path)
+    args = [PY, str(KIT / "recent.py"), "--free", "--any", "--free-checks", "10", "--only", "zzzz"]
+    result = subprocess.run(args, cwd=root, capture_output=True, text=True, timeout=300)
+    output = result.stdout + result.stderr
+    assert result.returncode == 2, output
+    assert "Bite: there's no commit zzzz in this repository." in output
+    assert "Check the id with git log --oneline." in output
+
+
+def test_only_reports_only_missing_ids_when_several_are_named(tmp_path):
+    root, shas = make(tmp_path)
+    valid = shas[0][:8]
+    args = [PY, str(KIT / "recent.py"), "--free", "--any", "--free-checks", "10", "--only",
+            f"{valid},zzzz,yyyy"]
+    result = subprocess.run(args, cwd=root, capture_output=True, text=True, timeout=300)
+    output = result.stdout + result.stderr
+    assert result.returncode == 2, output
+    assert "Bite: there are no commits zzzz, yyyy in this repository." in output
+    assert f"there are no commits {valid}" not in output
+
+
+def test_only_keeps_a_valid_empty_commit_as_nothing_to_check(tmp_path):
+    root, _ = make(tmp_path)
+    git(root, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit",
+        "--allow-empty", "-q", "-m", "Empty commit")
+    sha = git(root, "rev-parse", "HEAD").strip()
+    result = subprocess.run([PY, str(KIT / "recent.py"), "--free", "--any", "--free-checks", "10", "--only",
+                             sha], cwd=root, capture_output=True, text=True, timeout=300)
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "Nothing to check" in output
+    assert "there's no commit" not in output
+
+
 def test_a_shard_that_isnt_one_of_the_parts_is_refused(tmp_path):
     root, _ = make(tmp_path)
     r = subprocess.run([PY, str(KIT / "recent.py"), "--free", "--shard", "3/2"], cwd=root, capture_output=True,

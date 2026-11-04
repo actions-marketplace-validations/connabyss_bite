@@ -1762,12 +1762,20 @@ def failed_only(fcfg, folder: Path, out: str):
 XDIST = re.compile(r"\s(?:-n|--numprocesses)(?:=|\s+)?(?!-)\S+|\s--dist(?:=|\s+)\S+")
 
 
+# pytest itself runs the tests: pytest, py.test or python -m pytest (any folder, .exe), not just a word in the line.
+PYTEST_RUNNER = re.compile(r"(?:^|[\s/\\])(?:py\.test|pytest)(?:\.exe)?(?=\s|$)")
+
+
 def one_process(cmd: str) -> str:
     """A pytest command for a few tests, without pytest-xdist's -n (and the --dist that goes with it): starting
     its workers took longer than the few tests themselves. They run the same in one process."""
-    if "pytest" not in cmd or not re.search(r"\s(?:-n|--numprocesses)", cmd):
+    head, sep, rest = cmd.partition(" -- ")  # what follows -- belongs to another tool (npm test -- -n 3)
+    runner = PYTEST_RUNNER.search(head)
+    if not runner:
         return cmd
-    return XDIST.sub("", cmd)
+    # only pytest's own options, after the pytest word: uv run -n (no cache) and xvfb-run -n 99 come before it
+    before, after = head[:runner.end()], head[runner.end():]
+    return before + XDIST.sub("", after) + sep + rest
 
 
 PYTEST_FILE = re.compile(r"(?:test_[^/]*|[^/]*_test)\.py$")
@@ -3182,7 +3190,16 @@ def main(argv=None):
     seen = len(cs)
     top = cs[0]["sha"] if cs else ""  # the newest commit of all, even one that changed no code
     if only:  # the commits named, wherever they are in the history
-        cs = commits(root, 0, named=only) or cs
+        named_commits = commits(root, 0, named=only)
+        missing = [name for name in only if not any(c["sha"].startswith(name) for c in named_commits)]
+        if missing:
+            if len(missing) == 1:
+                message = f"Bite: there's no commit {missing[0]} in this repository."
+            else:
+                message = f"Bite: there are no commits {', '.join(missing)} in this repository."
+            print(message + " Check the id with git log --oneline.")
+            return 2
+        cs = named_commits or cs
     for c in cs:
         files_of(root, c, cfg)
     other = [c for c in cs if c["other_lang"] and not c["code"]]
