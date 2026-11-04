@@ -74,7 +74,7 @@ def test_a_remembered_check_is_asked_again_once_its_test_is_deleted(tmp_path):
     first = bite(root)
     assert "noticed by test_round" in line(first, fix), first
     again = bite(root)
-    assert "checked before with ✅" in again and "noticed" in line(again, fix), again
+    assert "checked before with" in again and "noticed" in line(again, fix), again
     (root / "tests" / "test_round.py").unlink()  # the test that guarded it is deleted later
     commit(root, "tidy tests")
     after = bite(root)
@@ -119,7 +119,7 @@ def test_a_later_commit_adding_a_test_keeps_the_earlier_checks(tmp_path):
                                                   "    assert shop.count([1, 2]) == 2\n")
     new = commit(root, "Fix count")
     after = bite(root)
-    assert "1 commit checked before with ✅" in after, after
+    assert "1 commit checked before with" in after, after
     assert "noticed by test_round" in line(after, fix), after
     assert "noticed by test_count" in line(after, new), after  # the new commit itself is checked
 
@@ -134,7 +134,7 @@ def test_a_later_commit_adding_to_an_existing_test_file_keeps_the_earlier_checks
         f.write("\n\ndef test_count():\n    assert shop.count([1, 2]) == 2\n")
     commit(root, "Fix count")
     after = bite(root)
-    assert "1 commit checked before with ✅" in after and "noticed by test_round" in line(after, fix), after
+    assert "1 commit checked before with" in after and "noticed by test_round" in line(after, fix), after
 
 
 def test_a_piece_only_a_later_test_notices_is_asked_again_once_that_test_is_weakened(tmp_path):

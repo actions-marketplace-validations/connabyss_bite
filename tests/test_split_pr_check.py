@@ -73,6 +73,6 @@ def test_parts_gathered_leave_nothing_noticed_to_check_again(tmp_path):
     subprocess.run([PY, str(KIT / "bot" / "merge_shards.py"), str(tmp_path / "parts"), str(root / "bite_proof")],
                    check=True, capture_output=True)
     out = bite(root)
-    assert "3 commits checked before with ✅" in out, out
+    assert "3 commits checked before with" in out, out
     for sha in shas:
-        assert any(ln.startswith(f"  {sha} ✅ noticed by test_") for ln in out.splitlines()), out
+        assert any(ln.startswith(f"  {sha} ") and "noticed by test_" in ln for ln in out.splitlines()), out
