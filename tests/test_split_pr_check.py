@@ -56,6 +56,8 @@ def test_each_commit_gets_a_machine_of_its_own_up_to_the_action_limit():
     # every part 1..N runs, and each takes its share of N: together they check every commit
     assert "part: ${{ fromJSON(needs.plan.outputs.parts) }}" in FLOW
     assert "--shard ${{ matrix.part }}/${{ needs.plan.outputs.total }}" in FLOW
+    # one commit needs no part machine: the bite job (which runs whatever the parts did) checks it itself
+    assert "if: fromJSON(needs.plan.outputs.total) > 1" in re.search(r"\n  part:.*?steps:", FLOW, re.S)[0]
 
 
 def test_the_parts_match_the_action_run():
