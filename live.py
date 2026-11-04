@@ -246,8 +246,13 @@ def main(argv: list) -> int:
     if root is None:
         print("Bite: not inside a git repository.")
         return 1
-    base = argv[argv.index("--since") + 1] if "--since" in argv and argv.index("--since") + 1 < len(argv) else "HEAD"
+    has_since = "--since" in argv
+    base = argv[argv.index("--since") + 1] if has_since and argv.index("--since") + 1 < len(argv) else "HEAD"
     if repo.git(root, "rev-parse", "--verify", "-q", f"{base}^{{commit}}") is None:
+        if not has_since and repo.git(root, "rev-parse", "--verify", "-q", "HEAD") is None:
+            print("Bite: this repository has no commits yet, so there's nothing to compare your changes with. "
+                  "Make a first commit, then run bite live again.")
+            return 0
         print(f"Bite: --since {base} isn't a commit or branch in this repository.")
         return 1
     print("Bite: taking the changes since " + ("the last commit" if base == "HEAD" else base)
