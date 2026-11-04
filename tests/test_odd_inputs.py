@@ -30,7 +30,7 @@ def test_an_option_with_no_value_says_so():
 def test_a_negative_number_is_refused(tmp_path, monkeypatch):
     # git log -n-5 reads the whole history: on a big project that's hours of test runs.
     monkeypatch.chdir(tmp_path)  # not a repository: a check that slipped through couldn't run here
-    assert say(["--free", "--last", "-5"]) == (2, "Bite: --last needs a whole number of 0 or more, got '-5'.")
+    assert say(["--free", "--last", "-5"]) == (2, "Bite: --last needs a whole number of 1 or more, got '-5'.")
     assert say(["--budget", "-1"])[0] == 2
 
 

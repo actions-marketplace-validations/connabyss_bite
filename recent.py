@@ -1067,6 +1067,11 @@ def spelled(secs: float) -> str:
     return f"{secs // 60} min" + (f" {secs % 60} sec" if secs % 60 else "")
 
 
+def plural(n: int, word: str) -> str:
+    """One commit, two commits: no "(s)" for a newcomer to decode."""
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
 def _timed(fcfg, folder) -> dict:
     """bite.run_tests, counted in the "still running" lines while it goes on."""
     me = object()
@@ -3058,13 +3063,14 @@ def main(argv=None):
         if argv[i] in VALUED:
             kind = VALUED[argv[i]]
             need = "a whole number" if kind is int else "a number"
+            least = 1 if argv[i] == "--last" else 0  # git log -n0 can never find a commit
             try:
-                below = kind is not str and kind(argv[i + 1]) < 0  # git log -n-5 would read the whole history
+                below = kind is not str and kind(argv[i + 1]) < least
             except ValueError:
                 print(f"Bite: {argv[i]} needs {need}, got {argv[i + 1]!r}.")
                 return 2
             if below:
-                print(f"Bite: {argv[i]} needs {need} of 0 or more, got {argv[i + 1]!r}.")
+                print(f"Bite: {argv[i]} needs {need} of {least} or more, got {argv[i + 1]!r}.")
                 return 2
             if argv[i] in AT_LEAST_ONE and kind(argv[i + 1]) < 1:  # 0 checks nothing, then ends as if all is well
                 print(f"Bite: {argv[i]} needs {need} of 1 or more, got {argv[i + 1]!r}.")
@@ -3153,7 +3159,7 @@ def main(argv=None):
     other = [c for c in cs if c["other_lang"] and not c["code"]]
     cs = [c for c in cs if c["code"]]
     newest = cs[0]["sha"] if cs else ""  # git log lists the newest first
-    print(f"Bite: {len(cs)} commits changed code in the last {opt('--last', 40)}.", flush=True)
+    print(f"Bite: {plural(len(cs), 'commit')} changed code in the last {opt('--last', 40)}.", flush=True)
     lang = repo.runs_language(cfg.test_cmd)[0]
     if cs and repo.shallow(root):
         print(f"  {repo.SHALLOW}", flush=True)
@@ -3386,7 +3392,7 @@ def main(argv=None):
     held = [c for c in checked if c["undo"].startswith(("guarded", "closed since"))]
     if held:  # a newcomer reads "failed" as bad: here it's the result you want
         print("\n✅ means that with the change taken out, a test failed. That's the good result: your tests caught it.")
-    print(f"\nChecked {len(checked)} commit(s): a test noticed {len(held)}, no test noticed {len(flagged)}, "
+    print(f"\nChecked {plural(len(checked), 'commit')}: a test noticed {len(held)}, no test noticed {len(flagged)}, "
           + (f"undone by a later commit {len(back)}, " if back else "")
           + f"{len(checked) - len(held) - len(flagged) - len(back)} couldn't be checked or skipped"
           + (f"; {n_out} outside the tests' reach" if n_out else "")

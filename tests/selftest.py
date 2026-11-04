@@ -370,7 +370,7 @@ check("fake test: a commit whose test does fail without its code is not", "test_
 rep = (root / "bite_proof" / "FREE_REPORT.md").read_text() if (root / "bite_proof" / "FREE_REPORT.md").is_file() else ""
 check("fake test: the report gives the commit, the gap, a rerun recipe and a note for their coding AI",
       "Double zero right away" in rep and "What Bite saw" in rep and "git worktree add" in rep
-      and "Hand this to your coding AI" in rep and "Checked 2 commit(s): a test noticed 1" in out)
+      and "Hand this to your coding AI" in rep and "Checked 2 commits: a test noticed 1" in out)
 
 # A flagged commit that created a file: `git checkout <sha>^ -- <file>` has no such path to restore, so the
 # recipe has to delete it instead.
@@ -413,7 +413,7 @@ with patch.dict(os.environ, {"PYTHONPATH": str(editable)}):
 check("src/ layout: each copy loads its own src/, not an editable install of today's code",
       "NO TEST NOTICED" not in out and "noticed by test_square" in out)
 rc, out = run(root, ["--free", "--last", "1"], fake_worker())
-check("a run that flags nothing says what it verified", "Checked 1 commit(s): a test noticed 1," in out)
+check("a run that flags nothing says what it verified", "Checked 1 commit: a test noticed 1," in out)
 
 # Noise filters for TEST GUARDS NOTHING (from 7 noise flags on two real repos): another OS, a tidy-up, tests
 # written for other code, and a gap a later commit closed. Each would otherwise be flagged.
@@ -731,7 +731,7 @@ check("caught_by: reads failing test names from pytest, unittest, go and cargo o
       recent.caught_by("FAILED tests/t.py::TestA::test_one - assert 1 == 2\nFAILED tests/t.py::test_two\n") == "`test_one` and 1 more"
       and recent.caught_by("FAIL: test_x (t.T.test_x)\n") == "`test_x`" and recent.caught_by("--- FAIL: TestGo (0.00s)") == "`TestGo`"
       and recent.caught_by("test parse::empty ... FAILED") == "`parse::empty`" and recent.caught_by("all good") == "")
-rc, out = run(root, ["--free", "--last", "0"], fake_worker())
+rc, out = run(root, ["--free", "--since", "HEAD"], fake_worker())
 notes["nothing in the pull request"] = (root / "bite_proof" / "COMMENT.md").read_text(encoding="utf-8") if rc == 0 else ""
 how = "Bite asks one question about each change: if it disappeared, would any test notice? It takes the change out, runs your tests, and puts it back."
 check("comment: every kind starts with the same cat logo, the picture in assets/", len(notes) >= 7
@@ -771,7 +771,7 @@ check(f"pull request: after merging its base back in, it checks its own commit, 
       got == ["Add half"])
 rc, out = run(root, ["--free", "--since", base, "--last", "1", "--free-checks", "1"], fake_worker())
 check("pull request: the whole free pass with --since checks the pull request's code commit",
-      "Nothing to check" not in out and "1 commits changed code" in out)
+      "Nothing to check" not in out and "1 commit changed code" in out)
 rc, out = run(root, ["--free", "--since", "no-such-branch"], fake_worker())
 check("pull request: an unknown --since is named, not taken as 'nothing to check'",
       rc == 1 and "isn't a commit or branch" in out)
