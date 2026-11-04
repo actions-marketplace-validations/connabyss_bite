@@ -340,7 +340,7 @@ def ask(root: Path, question: str, last: int = 100, most: int = 3, free: bool = 
         hint = "" if free or has_key() else " (With an API key, Bite can also match vaguer questions.)"
         return {"status": "none", "checked": [], "text": f"Bite found no commit{span} that matches your words. Try "
                 f"words from the commit message, or a function or file name it changed.{hint}"}
-    log(f"Bite: checking {len(picked)} matching commit(s): each runs your tests twice (with and without the change)...")
+    log(f"Bite: checking {recent.plural(len(picked), 'matching commit')}: each runs your tests twice (with and without the change)...")
     t0 = time.time()
     for c in picked:
         c["undo"] = recent.undo_check(root, c, cfg)
