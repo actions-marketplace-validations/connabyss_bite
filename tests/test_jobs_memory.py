@@ -157,9 +157,8 @@ def test_a_piece_only_a_later_test_notices_is_asked_again_once_that_test_is_weak
                                                   "    assert shop.count([1]) == 1\n")
     commit(root, "simplify count test")
     after = bite(root)
-    assert "noticed by test_round" not in line(after, fix), after
-    fresh = bite(root, "--again")
-    assert line(after, fix).split()[1:4] == line(fresh, fix).split()[1:4], (after, fresh)
+    # asked again, it finds the piece no test notices now (what a run with no memory says)
+    assert "PART NOT NOTICED" in line(after, fix) and "checked before" not in after, after
 
 
 def test_a_check_that_leaned_on_todays_tests_is_asked_again_when_they_change(tmp_path):

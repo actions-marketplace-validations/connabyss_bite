@@ -19,9 +19,18 @@ jobs:
     runs-on: ${{ matrix.os == 'macos-latest' && 'macos-15-intel' || matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      # Windows has no Python 3.10 built in: setup-python installed it on every run (44 sec of the job). Keep the
+      # installed copy between runs; setup-python finds it in the tool cache and only puts it on the path.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        if: runner.os == 'Windows' && matrix.python == '3.10'
+        with:
+          path: C:\hostedtoolcache\windows\Python\3.10.*
+          key: python-${{ runner.os }}-${{ matrix.python }}-v1
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: python -m pip install -e .[test]
       # 4 at a time (pytest-xdist): about 4x faster, most of all on Windows, where each test starts slower (#16).
-      - run: python -m pytest -v -n auto
+      - run: python -m pytest -v -n auto --dist worksteal --durations=20

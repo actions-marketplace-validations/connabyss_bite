@@ -11,6 +11,39 @@ from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from unittest.mock import patch
 
+
+def _part(k: int) -> int:
+    """python tests/selftest.py --part K: run only part K of the checks below (they're split by "# --- part ---"
+    lines), so pytest can run the parts side by side. Every function, class and CONSTANT the other parts define
+    is defined too, and line numbers stay the same, so a failure points at the same line as a whole run."""
+    import ast
+    src = Path(__file__).read_text(encoding="utf-8")
+    lines = src.splitlines()
+    marks = [i + 1 for i, ln in enumerate(lines) if ln == "# --- part ---"]
+    end = next(i + 1 for i, ln in enumerate(lines) if ln == "# --- end of parts ---")
+    if not 1 <= k <= len(marks):
+        print(f"no part {k}: there are {len(marks)}")
+        return 2
+    lo, hi = marks[k - 1], (marks[k] if k < len(marks) else end)
+    tree = ast.parse(src, filename=__file__)
+
+    def keep(n):
+        if n.lineno < marks[0] or n.lineno > end or lo < n.lineno < hi:
+            return True
+        if isinstance(n, (ast.FunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom)):
+            return True
+        return isinstance(n, ast.Assign) and all(isinstance(t, ast.Name) and t.id.isupper() for t in n.targets)
+    tree.body = [n for n in tree.body if keep(n)]
+    try:
+        exec(compile(tree, __file__, "exec"), {"__name__": "bite_selftest_part", "__file__": __file__})
+    except SystemExit as e:
+        return e.code or 0
+    return 0
+
+
+if __name__ == "__main__" and sys.argv[1:2] == ["--part"]:
+    sys.exit(_part(int(sys.argv[2])))
+
 KIT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KIT))
 import recent  # noqa: E402
@@ -84,6 +117,7 @@ def run(root, argv, worker, verdict="REAL"):
         os.chdir(cwd)
 
 
+# --- part ---
 # Error guidance must name setup steps that actually exist, without a real key.
 with tempfile.TemporaryDirectory() as tmp:
     missing = Path(tmp) / "missing.ini"
@@ -129,6 +163,7 @@ for c in (a, b):
     c["score"] = (3 if recent.CLAIM.search(c["subject"]) else 0) + (2 if recent.MATTERS.search(c["subject"]) else 0)
 check("claims about saving or data rank above cosmetic ones", b["score"] > a["score"])
 
+# --- part ---
 root = make_repo()
 check("every commit is picked, whoever or whatever made it", len(recent.commits(root, 40)) == 4)
 
@@ -158,6 +193,8 @@ check("test that doesn't load is not a finding", "FALSE" not in out and "didn't 
 rc, out = run(root, ["--free"], fake_worker())
 check("--free spends nothing and tests no claims", "FALSE" not in out and "$0.00" in out)
 
+# --- part ---
+root = make_repo()  # its own practice repo, so this half runs beside the first (it needs none of their runs)
 # --write-tests: for a change no test noticed, a worker writes the missing test. Bite keeps it only if it passes
 # with the change in and fails with the change taken out, and shows it in the pull request comment.
 GUARD_TEST = ("import unittest\nfrom calc import clamp\n\nclass G(unittest.TestCase):\n"
@@ -246,6 +283,7 @@ commit(root, "really clamp (by a person)")
 rc, out = run(root, [], fake_worker())
 check("fixed since is said so", "fixed since" in out)
 
+# --- part ---
 # A long free pass: each result shows the moment it's known (even with output sent to a file) and is saved, so
 # stopping partway keeps it. And bite_proof/ stays out of the user's git.
 root = make_repo()
@@ -298,6 +336,7 @@ check("missing tests: two at one path are both kept, the second named after its 
       and (root / "bite_proof" / "missing_tests" / "tests" / "test_bite_claim_bbbbbbbb.py").read_text() == "two\n")
 recent.save_missing_tests(root, [])
 
+# --- part ---
 # test_covers: a change the test command can't reach is listed as such, not called "unguarded".
 root = make_repo()
 (root / ".bite.ini").write_text(f"[kit]\ntest_command = {PY} -m unittest -q\nallowed_programs = {PY}\n"
@@ -353,6 +392,7 @@ commit(root, "Add more tests, fix the header comment" + CLAUDE)
 rc, out = run(root, ["--free", "--last", "1"], fake_worker())
 check("a comment-only edit isn't checked as a code change", "ITS TESTS DIDN'T NOTICE" not in out and "free check" not in out)
 
+# --- part ---
 # A test that guards nothing: the commit's own new test still passes with its code change taken out.
 root = make_repo()
 (root / "calc.py").write_text((root / "calc.py").read_text().replace("2 * x", "x + x if x else 0"))
@@ -442,6 +482,7 @@ for subject in ("Release 1.0.154", "Bump version to 12.2.0", "v2.3.1"):
     check(f"noise: a release commit ({subject}) isn't flagged", "ITS TESTS DIDN'T NOTICE" not in out and "a release" in out)
 rc, out = run(weak_commit("Release the lock when double fails"), ["--free", "--last", "1"], fake_worker())
 check("a commit that only starts with \"Release\" is still checked", "ITS TESTS DIDN'T NOTICE" in out)
+# --- part ---
 # Go: interface{} and any are the same type, so swapping one for the other changes nothing a test could see.
 root = make_repo()
 (root / "box.go").write_text("package box\n\nfunc Keep(v interface{}) interface{} { return v }\n")
@@ -497,6 +538,7 @@ check("noise: a gap a later commit closed isn't flagged", "ITS TESTS DIDN'T NOTI
 check("noise filters keep real catches: the plain weak test is still flagged",
       "ITS TESTS DIDN'T NOTICE" in run(weak_commit("Double zero right away"), ["--free", "--last", "1"], fake_worker())[1])
 
+# --- part ---
 # free_test_command: step 1 uses the faster command, step 2 still uses test_command.
 root = make_repo()
 (root / ".bite.ini").write_text(f"[kit]\ntest_command = {PY} -m unittest -q\nallowed_programs = {PY}\n"
@@ -573,6 +615,7 @@ check("a C#-style name (BiteClaimTests) counts as the claim test file", 'FALSE "
 
 # Git LFS: git archive writes pointer files; Bite's copy gets the real content from the repo's LFS store.
 import hashlib  # noqa: E402
+# --- part ---
 root = make_repo()
 real = b"\x89PNG real art bytes\n" * 50
 oid = hashlib.sha256(real).hexdigest()
@@ -607,6 +650,7 @@ check("options: a non-number value gets a one-line message", buf.getvalue().stri
 missing = [o for o in sorted(recent.FLAGS | set(recent.VALUED)) if o not in recent.__doc__]
 check(f"options: --help lists every option main() accepts (missing: {missing})", not missing)
 
+# --- part ---
 # First run: a missing test runner is named, with the fix, before any copy is made (not "exit 1" per commit).
 root = make_repo()
 (root / ".bite.ini").write_text(f"[kit]\ntest_command = {PY} -m pytest -q\nallowed_programs = {PY}\n")
@@ -743,6 +787,7 @@ check("comment: every kind (worth a look, tests check it, couldn't check, no cod
 check("comment: a run with nothing to check still writes the comment the GitHub Action posts",
       "No commit in this pull request changed code" in notes["nothing in the pull request"])
 
+# --- part ---
 # A pull request that merged its base back in ("Update branch"): the base's newer commits must not crowd out the
 # pull request's own. GitHub checks out a merge of the pull request into the base, so HEAD is a merge too.
 root = make_repo()
@@ -803,5 +848,6 @@ check("action.yml: the pull request check runs the free pass and the README show
       "bite --free" in (KIT / "action.yml").read_text(encoding="utf-8")
       and "uses: connabyss/bite@" in (KIT / "README.md").read_text(encoding="utf-8"))
 
+# --- end of parts ---
 print(f"\n{sum(OK)}/{len(OK)} passed")
 sys.exit(0 if all(OK) else 1)

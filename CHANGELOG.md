@@ -5,6 +5,8 @@ github.com/connabyss/bite. Install or update: `pipx install --force bite-check -
 
 ## Unreleased
 
+- Bite's own self-test (tests/selftest.py, 139 checks) runs in 10 parts side by side under pytest instead of one
+  50-second process; `python tests/selftest.py` still runs it all at once. CI prints the 20 slowest tests.
 - Bite's own pull request check gives each commit a machine of its own (up to 20) instead of 6 shared ones, so
   it takes about as long as its slowest commit, however many commits the pull request has.
 - Bite's own pull request check splits the commits across 6 machines at once (`--shard`, like the weekly
