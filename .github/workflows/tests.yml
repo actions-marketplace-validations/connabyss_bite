@@ -26,6 +26,14 @@ jobs:
         with:
           path: C:\hostedtoolcache\windows\Python\3.10.*
           key: python-${{ runner.os }}-${{ matrix.python }}-v1
+      # Windows: the tests write thousands of small files (practice repos, copies), and the runner's C: drive, where
+      # the temp folder is, is the slow one. They write to D: instead. Same tests.
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force D:\tmp | Out-Null
+          "TMP=D:\tmp" >> $env:GITHUB_ENV
+          "TEMP=D:\tmp" >> $env:GITHUB_ENV
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}

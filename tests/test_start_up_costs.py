@@ -53,3 +53,9 @@ def test_the_tests_that_failed_rerun_without_xdist(tmp_path):
     fcfg = project(tmp_path)
     sub = recent.failed_only(fcfg, tmp_path, "FAILED tests/test_a.py::test_x - assert False\n1 failed in 0.1s\n")
     assert sub is not None and "test_x" in sub.test_cmd and " -n " not in f" {sub.test_cmd} ", sub.test_cmd
+
+
+def test_windows_ci_writes_its_temp_files_to_the_fast_drive():
+    flow = (KIT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    step = flow[flow.index("if: runner.os == 'Windows'\n        shell: pwsh"):flow.index("actions/setup-python")]
+    assert '"TMP=D:\\tmp"' in step and '"TEMP=D:\\tmp"' in step, step

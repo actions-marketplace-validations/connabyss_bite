@@ -10,7 +10,8 @@ github.com/connabyss/bite. Install or update: `pipx install --force bite-check -
   working tree) is still asked every time.
 - Bite's quick one-process rerun drops `-n` only when pytest itself runs the tests (not `tox -e pytest -- -n 4`).
 - Bite's own tests: the practice projects' pytest runs load no installed plugins (each start was a third slower
-  with pytest-xdist), and Bite's own pull request check uses at most 10 machines (2 commits each past 10).
+  with pytest-xdist), and Bite's own pull request check uses at most 10 machines (2 commits each past 10). On
+  Windows CI the tests write their temp files to the runner's faster D: drive.
 - Bite starts faster: asyncio (2/3 of its start-up) loads only for the paid step. The quick reruns of a few tests
   (the commit's own tests, the tests that failed) run in one process instead of starting pytest-xdist's workers
   for them. Same tests, same results; about a second saved per commit, more on Windows.
