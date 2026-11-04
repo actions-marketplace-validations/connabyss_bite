@@ -193,6 +193,8 @@ check("test that doesn't load is not a finding", "FALSE" not in out and "didn't 
 rc, out = run(root, ["--free"], fake_worker())
 check("--free spends nothing and tests no claims", "FALSE" not in out and "$0.00" in out)
 
+# --- part ---
+root = make_repo()  # its own practice repo, so this half runs beside the first (it needs none of their runs)
 # --write-tests: for a change no test noticed, a worker writes the missing test. Bite keeps it only if it passes
 # with the change in and fails with the change taken out, and shows it in the pull request comment.
 GUARD_TEST = ("import unittest\nfrom calc import clamp\n\nclass G(unittest.TestCase):\n"
