@@ -5,6 +5,10 @@ github.com/connabyss/bite. Install or update: `pipx install --force bite-check -
 
 ## Unreleased
 
+- Bite's own pull request check splits the commits across 6 machines at once (`--shard`, like the weekly
+  self-check), then one last job gathers what they remembered and writes the comment. One machine couldn't go
+  faster: its 4 cores were already busy with the tests. A 17-commit pull request took about 30 minutes; split, it
+  takes about as long as 3 commits. The recipe is in .github/workflows/bite.yml for any project with a slow suite.
 - A new push to a pull request checks only its new commits. Bite remembered each commit it checked with ✅, but
   forgot every one of them as soon as any test file changed, so a pull request whose every commit adds a test (as
   it should) started over from zero on each push: 17 commits, about 30 minutes, every time. Bite checks each
