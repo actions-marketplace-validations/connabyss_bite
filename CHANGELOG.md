@@ -3,7 +3,7 @@
 What changed in each Bite release, newest first. Numbers link to the pull request on
 github.com/connabyss/bite. Install or update: `pipx install --force bite-check --pip-args="--no-cache-dir"`.
 
-## Unreleased
+## 1.0.4 (2026-11-04)
 
 - `--free-checks 0` is refused with a plain message. It used to check nothing and end as if all was well.
 - A test the commit added inside a parent test that is skipped on this system counts as skipped too, not as
