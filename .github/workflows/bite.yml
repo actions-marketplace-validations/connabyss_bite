@@ -9,18 +9,34 @@ permissions:
 
 # Bite checks each commit of a pull request with the whole suite (about 1 min 45 sec a commit here), and this 4-core
 # machine is already full with the tests running 4 at a time (.bite.ini), so 2 commits at once on one machine only
-# made each wait on the other. So the commits are split across PARTS machines at once (bite --shard K/N), and the
+# made each wait on the other. So each commit gets a machine of its own (up to 20, bite --shard K/N), and the
 # last job, named bite like the check always was, gathers them: every ✅ a machine found is remembered, so the
 # action checks only what's left (a change no test noticed, or tests that fail) and writes the one comment.
-# 17 commits went from about 30 minutes on one machine to about 3 commits' worth.
+# 17 commits went from about 30 minutes on one machine to about as long as the slowest one.
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      parts: ${{ steps.n.outputs.parts }}
+      total: ${{ steps.n.outputs.total }}
+    steps:
+      - id: n
+        env:
+          COMMITS: ${{ github.event.pull_request.commits }}
+        # One part per commit, at most 20 (the action's max-commits), at least 1.
+        run: |
+          n=$COMMITS; [ "${n:-0}" -lt 1 ] && n=1; [ "$n" -gt 20 ] && n=20
+          echo "total=$n" >> "$GITHUB_OUTPUT"
+          echo "parts=[$(seq -s, 1 "$n")]" >> "$GITHUB_OUTPUT"
+
   part:
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        part: [1, 2, 3, 4, 5, 6]  # PARTS: keep the 6 in --shard below the same
+        part: ${{ fromJSON(needs.plan.outputs.parts) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -39,7 +55,7 @@ jobs:
           path: bite_proof/checked.json
           key: bite-checked-${{ github.event.pull_request.number }}-${{ github.run_id }}
           restore-keys: bite-checked-${{ github.event.pull_request.number }}-
-      - name: Bite checks part ${{ matrix.part }} of 6 of this pull request's commits
+      - name: Bite checks part ${{ matrix.part }} of ${{ needs.plan.outputs.total }} of this pull request's commits
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         # The same commits and options as the action's own run below (max-commits 20, --part-runs 2), so what this
@@ -47,7 +63,7 @@ jobs:
         run: |
           n=$(git rev-list --count --no-merges "$BASE..HEAD")
           [ "$n" -gt 20 ] && n=20
-          bite --free --since "$BASE" --last "$n" --free-checks "$n" --part-runs 2 --shard ${{ matrix.part }}/6 \
+          bite --free --since "$BASE" --last "$n" --free-checks "$n" --part-runs 2 --shard ${{ matrix.part }}/${{ needs.plan.outputs.total }} \
             || echo "::notice::Part ${{ matrix.part }} found something: the bite job checks it again and says what."
       - uses: actions/upload-artifact@v7
         if: always()

@@ -5,6 +5,8 @@ github.com/connabyss/bite. Install or update: `pipx install --force bite-check -
 
 ## Unreleased
 
+- Bite's own pull request check gives each commit a machine of its own (up to 20) instead of 6 shared ones, so
+  it takes about as long as its slowest commit, however many commits the pull request has.
 - Bite's own pull request check splits the commits across 6 machines at once (`--shard`, like the weekly
   self-check), then one last job gathers what they remembered and writes the comment. One machine couldn't go
   faster: its 4 cores were already busy with the tests. A 17-commit pull request took about 30 minutes; split, it
