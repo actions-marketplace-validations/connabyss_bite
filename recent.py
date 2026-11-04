@@ -2864,6 +2864,9 @@ def main(argv=None):
         elif folder is None and not argv[i].startswith("-") and Path(argv[i].strip("\"'")).is_dir():
             # The project's folder, so nobody has to cd first: dragging a folder into the window types its path.
             folder = argv.pop(i).strip("\"'")
+        elif i and argv[i - 1] == "--demo" and not argv[i].startswith("-"):
+            print(f"Bite: there's no demo called {argv[i]!r}. Try bite --demo, or bite --demo comeback.")
+            return 2
         else:
             print(f"Bite: unknown option {argv[i]!r}. Run bite --help for the options.")
             return 2
