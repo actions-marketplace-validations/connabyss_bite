@@ -731,7 +731,7 @@ check("caught_by: reads failing test names from pytest, unittest, go and cargo o
       recent.caught_by("FAILED tests/t.py::TestA::test_one - assert 1 == 2\nFAILED tests/t.py::test_two\n") == "`test_one` and 1 more"
       and recent.caught_by("FAIL: test_x (t.T.test_x)\n") == "`test_x`" and recent.caught_by("--- FAIL: TestGo (0.00s)") == "`TestGo`"
       and recent.caught_by("test parse::empty ... FAILED") == "`parse::empty`" and recent.caught_by("all good") == "")
-rc, out = run(root, ["--free", "--last", "0"], fake_worker())
+rc, out = run(root, ["--free", "--since", "HEAD"], fake_worker())
 notes["nothing in the pull request"] = (root / "bite_proof" / "COMMENT.md").read_text(encoding="utf-8") if rc == 0 else ""
 how = "Bite asks one question about each change: if it disappeared, would any test notice? It takes the change out, runs your tests, and puts it back."
 check("comment: every kind starts with the same cat logo, the picture in assets/", len(notes) >= 7
