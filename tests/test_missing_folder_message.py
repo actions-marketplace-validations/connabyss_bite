@@ -26,3 +26,12 @@ def test_a_flag_typo_still_says_unknown_option(tmp_path):
     out = p.stdout + p.stderr
     assert p.returncode == 2, out
     assert "unknown option '--no-such-flag'" in out, out
+    assert "Did you mean" not in out, out
+
+
+def test_a_close_flag_typo_suggests_the_right_option(tmp_path):
+    p = subprocess.run([sys.executable, RECENT, "--free", "--frees"], cwd=tmp_path, capture_output=True,
+                       text=True, timeout=300)
+    out = p.stdout + p.stderr
+    assert p.returncode == 2, out
+    assert "Bite: unknown option '--frees'. Did you mean --free? Run bite --help for the options." in out, out

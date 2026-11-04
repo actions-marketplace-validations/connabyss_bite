@@ -3087,7 +3087,9 @@ def main(argv=None):
             if folder is None and not argv[i].startswith("-"):
                 print(f"Bite: there's no folder at {raw}. Check the path, or drag the folder into this window to type it.")
                 return 2
-            print(f"Bite: unknown option {argv[i]!r}. Run bite --help for the options.")
+            close = difflib.get_close_matches(argv[i], sorted(FLAGS | set(VALUED)), n=1)
+            hint = f" Did you mean {close[0]}?" if close else ""
+            print(f"Bite: unknown option {argv[i]!r}.{hint} Run bite --help for the options.")
             return 2
     opt = lambda k, d: type(d)(argv[argv.index(k) + 1]) if k in argv else d  # noqa: E731
     ROAST[0] = "--roast" in argv
