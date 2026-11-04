@@ -1058,7 +1058,9 @@ def _ticker():
 
 
 def spelled(secs: float) -> str:
-    """A time in words a newcomer reads at a glance: "45 sec", "2 min", "3 min 30 sec" (not "3m 30s")."""
+    """A time in words a newcomer reads at a glance: "under 1 sec", "45 sec", "2 min", "3 min 30 sec"."""
+    if secs < 1:
+        return "under 1 sec"
     secs = round(secs)
     if secs < 60:
         return f"{secs} sec"
@@ -2997,6 +2999,14 @@ def utf8_output() -> None:
             pass  # not a real stream (a test's capture): leave it
 
 
+NO_TEST_COMMAND = (
+    "It looks for pytest, npm test, cargo test, go test, dotnet test, Maven and Gradle.\n\n"
+    "Tell Bite how to run yours in .bite.ini, next to your code:\n\n"
+    "    [bite]\n"
+    "    test_command = python -m pytest"
+)
+
+
 def main(argv=None):
     if argv is None:  # run from the command line (a test calling main() keeps its own PATH)
         leave_own_python()
@@ -3065,7 +3075,14 @@ def main(argv=None):
         elif folder is None and not argv[i].startswith("-") and Path(argv[i].strip("\"'")).is_dir():
             # The project's folder, so nobody has to cd first: dragging a folder into the window types its path.
             folder = argv.pop(i).strip("\"'")
+        elif i and argv[i - 1] == "--demo" and not argv[i].startswith("-"):
+            print(f"Bite: there's no demo called {argv[i]!r}. Try bite --demo, or bite --demo comeback.")
+            return 2
         else:
+            raw = argv[i].strip("\"'")
+            if folder is None and not argv[i].startswith("-"):
+                print(f"Bite: there's no folder at {raw}. Check the path, or drag the folder into this window to type it.")
+                return 2
             print(f"Bite: unknown option {argv[i]!r}. Run bite --help for the options.")
             return 2
     opt = lambda k, d: type(d)(argv[argv.index(k) + 1]) if k in argv else d  # noqa: E731
@@ -3108,8 +3125,8 @@ def main(argv=None):
         return 1
     covers = extras(root, cfg)
     if not cfg.test_cmd:
-        print("Bite: no test command found; set test_command in .bite.ini")
-        write_comment(root, [], error="Bite found no test command. Set test_command in .bite.ini.")
+        print(f"Bite: no test command found. {NO_TEST_COMMAND}")
+        write_comment(root, [], error=f"Bite found no test command. {NO_TEST_COMMAND}")
         return 1
     if not cfg.programs:  # the worker may run the test runner and the project's language, nothing new
         first = cfg.test_cmd.split()[0]

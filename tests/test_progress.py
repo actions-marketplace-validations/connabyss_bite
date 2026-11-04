@@ -95,7 +95,7 @@ def test_a_long_test_run_says_it_is_still_running(monkeypatch, capsys):
     recent.doing({"sha": "abcdef1234"}, "running the tests with the change in...")
     recent.run_tests(None, "a")
     out = capsys.readouterr().out
-    assert "still running the tests, 0 sec so far..." in out, out  # outside the free check (bite live)
+    assert "still running the tests, under 1 sec so far..." in out, out  # outside the free check (bite live)
     time.sleep(0.3)  # and it stops when the run ends
     assert "still running" not in capsys.readouterr().out
 
