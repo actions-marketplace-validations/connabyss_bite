@@ -2800,6 +2800,14 @@ def leave_own_python() -> None:
     os.environ["PATH"] = os.pathsep.join(p for p in parts if not (p and same(p, own)))
 
 
+NO_TEST_COMMAND = (
+    "It looks for pytest, npm test, cargo test, go test, dotnet test, Maven and Gradle.\n\n"
+    "Tell Bite how to run yours in .bite.ini, next to your code:\n\n"
+    "    [bite]\n"
+    "    test_command = python -m pytest"
+)
+
+
 def main(argv=None):
     if argv is None:  # run from the command line (a test calling main() keeps its own PATH)
         leave_own_python()
@@ -2906,8 +2914,8 @@ def main(argv=None):
         return 1
     covers = extras(root, cfg)
     if not cfg.test_cmd:
-        print("Bite: no test command found; set test_command in .bite.ini")
-        write_comment(root, [], error="Bite found no test command. Set test_command in .bite.ini.")
+        print(f"Bite: no test command found. {NO_TEST_COMMAND}")
+        write_comment(root, [], error=f"Bite found no test command. {NO_TEST_COMMAND}")
         return 1
     if not cfg.programs:  # the worker may run the test runner and the project's language, nothing new
         first = cfg.test_cmd.split()[0]
