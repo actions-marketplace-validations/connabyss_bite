@@ -34,6 +34,13 @@ def test_a_negative_number_is_refused(tmp_path, monkeypatch):
     assert say(["--budget", "-1"])[0] == 2
 
 
+def test_free_checks_zero_is_refused_not_a_silent_all_clear(tmp_path, monkeypatch):
+    # 2026-11-04: --free-checks 0 checked no commit and ended like a clean run.
+    monkeypatch.chdir(tmp_path)
+    assert say(["--free", "--free-checks", "0"]) == \
+        (2, "Bite: --free-checks needs a whole number of 1 or more, got '0'.")
+
+
 def test_a_folder_that_is_not_there_is_not_a_repository(tmp_path):
     assert repo.repo_root(tmp_path / "nope") is None
     (tmp_path / "f.txt").write_text("x")

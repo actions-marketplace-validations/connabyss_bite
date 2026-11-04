@@ -204,6 +204,9 @@ def verdict(c: dict) -> tuple:
     who = f"commit {by['sha'][:8]} (\"{by['subject']}\")" if by else "a later commit"
     if u == "undone since":
         return "gap", "🔁 UNDONE BY A LATER COMMIT", f"It's gone from today's code: {who} put the old code back."
+    if u == "replaced since":
+        return "cant", "➖ REPLACED BY A LATER FIX", (f"{who[0].upper() + who[1:]} took it out with its tests and fixed "
+                                                     "it another way, with tests of its own.")
     if u == "reverted since":
         return "cant", "➖ REVERTED ON PURPOSE", f"{who[0].upper() + who[1:]} reverted it on purpose, so there's nothing left to guard."
     if u.startswith("closed since"):

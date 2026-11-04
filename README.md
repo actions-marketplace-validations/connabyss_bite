@@ -30,7 +30,14 @@ use one of those.) If your commits never say "fix", add `--any` to check every r
 installed as a `bite` command, see [Try it in a minute](#try-it-in-a-minute).
 
 **Here for Hack Week or your first open-source PR?** These [good first issues](https://github.com/connabyss/bite/labels/good%20first%20issue)
-are small, and each one says where to look and when it's done. Comment on one to claim it.
+are small, and each one says where to look and when it's done. Comment on one to claim it. Or try to
+[fool Bite](https://github.com/connabyss/bite/issues/156): sneak a "fix" past it.
+
+> **Bite does this:** takes each recent fix back out of a copy of your project, runs your tests, and tells you
+> whether any test noticed. It never changes your files or pushes anything, and the free check costs nothing.
+>
+> **You decide that:** whether to add the missing test, or leave it because the change didn't need one (a rename,
+> a tidy-up). A ✅ means a test would catch that fix breaking. It doesn't prove the code has no other bugs.
 
 ## Why you need this
 

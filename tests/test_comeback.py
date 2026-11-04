@@ -202,3 +202,31 @@ def test_a_tidy_up_undone_is_no_alarm():
     c = {"sha": sha_of(root, "chore: round totals"), "code": ["shop.py"], "subject": "chore: round totals",
          "skip": recent.skip_reason("chore: round totals", "chore: round totals")}
     assert c["skip"] and recent.came_back(root, c) == ""
+
+
+def test_a_replacement_fix_with_its_own_tests_is_only_noted():
+    # dayjs d0e6738a fixed a timezone bug in src/index.js with a test; 10 minutes later b575c81a put the old line
+    # back, took that test out and fixed the bug in the timezone plugin instead, with new tests. Not an accident.
+    test_fix = "from shop import total\n\n\ndef test_total_rounds_to_cents():\n    assert total([0.1, 0.2]) == 0.3\n"
+    root = project([("Start", {"shop.py": OLD, "plugin.py": "def cents(x):\n    return x\n", "test_shop.py": "\n"}),
+                    ("Fix totals", {"shop.py": FIXED, "test_shop.py": test_fix}),
+                    ("Fix rounding in the plugin instead", {
+                        "shop.py": OLD, "test_shop.py": "\n",
+                        "plugin.py": "def cents(x):\n    return round(x, 2)\n",
+                        "test_plugin.py": "from plugin import cents\n\n\ndef test_cents_rounds():\n"
+                                          "    assert cents(0.1 + 0.2) == 0.3\n"})])
+    c = {"sha": sha_of(root, "Fix totals"), "code": ["shop.py"], "tests": ["test_shop.py"]}
+    back = recent.came_back(root, c)
+    assert back == "replaced since" and c["undone_by"]["subject"] == "Fix rounding in the plugin instead"
+    kind, label, text = recent.say({**c, "subject": "Fix totals", "undo": back})
+    assert kind == "skip" and "replaced" in label and "UNDONE" not in label
+    assert ask.verdict({**c, "undo": back, "time": 1767268800})[0] == "cant"
+
+
+def test_an_undo_that_keeps_the_fixs_test_is_still_the_alarm():
+    test_fix = "from shop import total\n\n\ndef test_total_rounds_to_cents():\n    assert total([0.1, 0.2]) == 0.3\n"
+    root = project([("Start", {"shop.py": OLD, "test_shop.py": "\n"}),
+                    ("Fix totals", {"shop.py": FIXED, "test_shop.py": test_fix}),
+                    ("Simplify total()", {"shop.py": OLD, "test_other.py": "def test_other_thing():\n    assert 1 + 1\n"})])
+    c = {"sha": sha_of(root, "Fix totals"), "code": ["shop.py"], "tests": ["test_shop.py"]}
+    assert recent.came_back(root, c) == "undone since"

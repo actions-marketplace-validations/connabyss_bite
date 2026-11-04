@@ -5,6 +5,47 @@ github.com/connabyss/bite. Install or update: `pipx install --force bite-check -
 
 ## Unreleased
 
+- `--free-checks 0` is refused with a plain message. It used to check nothing and end as if all was well.
+- A test the commit added inside a parent test that is skipped on this system counts as skipped too, not as
+  "didn't notice". tap names only the skipped parent (dotenv 7c675904 on Windows).
+- A commit that changed only TypeScript declaration files (`.d.ts`) is listed as code the tests can't run, not
+  flagged: those files hold types only (dayjs).
+- `why:` lines no longer end in a literal `\r` or start with a `+` taken from tap's escaped diff dump of the error
+  (node-semver on Windows).
+- When a commit turns out "rewritten later", Bite prints a line saying it's not flagged after all, so the list matches
+  the summary.
+- `--only` finds the commits named wherever they are in the history. It used to look only among the last 40,
+  so an older commit got "Nothing to check".
+- JavaScript projects: Bite's copies now sit outside the project, with a link to its `node_modules`, instead of
+  inside `node_modules`. Tools that skip anything under `node_modules` (jest, `@babel/register`, tap) skipped the
+  copies too, so on validator.js every commit showed as "tests already fail" though its tests pass.
+- npm projects: checking a change on today's code (the "its test is gone" check) really takes the change out now.
+  Bite's copies sit inside the project's git folder there, and `git apply` changed nothing while saying it worked,
+  so every "its test is gone" on an npm project was false (found on dotenv).
+- `--keep-output` saves what the tests printed for each commit, with the change in and taken out, in
+  `bite_proof/output/<commit>.txt`, so you can see why Bite read a run the way it did (asked for while checking
+  eemeli/yaml).
+- A change no test noticed, whose code a later commit in the same run rewrote, is no longer flagged when a test
+  notices that rewrite ("rewritten later by <commit>"). A pull request's early drafts no longer look like gaps
+  (found on h2 #1329). If the rewrite isn't noticed either, the flag stays.
+- When your tests already fail before Bite changes anything, Bite now says so once and stops. If the first 2
+  commits it checks fail with nothing taken out, it runs the tests on the newest commit, and when they fail there
+  too it stops instead of running every other check the same way (on validator.js that was 40 checks, because
+  the test command skipped a build step), and names the test command it ran. When the newest commit's tests pass, it goes on as before.
+- A test the commit added that is skipped on this system (marked: `{ skip: process.platform === 'win32' }`) no
+  longer makes Bite say "its tests didn't notice". It says the test was skipped here, so it couldn't notice. Read
+  from node --test, TAP, go test -v, cargo test and pytest -rs output.
+- On Windows, output sent to a file (`bite --free > run.log`) is now UTF-8: the ✅ and ⚠️ marks came out as "?"
+  and a cut-off subject's "…" as a stray byte.
+- The comeback alarm no longer goes off for a replacement fix: when the later commit that put the old code back
+  also took out the fix's tests and added tests of its own (dayjs b575c81a fixed d0e6738a's bug in the timezone
+  plugin instead), Bite says "➖ replaced by a later fix", a note instead of "🔁 UNDONE BY A LATER COMMIT".
+- Git submodules are in Bite's copies now. git archive leaves them out, so a project whose tests read one (tomlkit's
+  toml-test cases) showed "tests already fail" on every commit. Each is filled from its checkout; Bite says once if
+  one isn't checked out (`git submodule update --init`).
+- When the tests fail with nothing taken out, Bite runs them once more before skipping that commit: a test that
+  fails now and then (h2's Hypothesis test, on a cold copy) skipped 2 commits whose tests pass.
+- README: a short "Bite does this, you decide that" box, and a link to the Fool Bite challenge (#156).
 - Faster when a commit brings its own test (pytest). With the change taken out, Bite runs that commit's own test
   files first. When they notice (fail again, and pass with the change back in), the whole suite doesn't run a
   second time. Otherwise the whole suite decides, as before. Bite's check of its own 3-commit pull request #155 went

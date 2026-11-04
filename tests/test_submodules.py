@@ -70,3 +70,31 @@ def test_live_check_with_a_moved_submodule_answers(tmp_path):
     out = subprocess.run([PY, str(KIT / "recent.py"), "live"], cwd=root, capture_output=True, text=True, timeout=300)
     assert "Traceback" not in out.stderr + out.stdout, out.stderr[-1500:]
     assert "no test noticed the change to shop.js" in out.stdout, out.stdout
+
+
+def test_tests_that_read_a_submodule_work_on_bites_copies(tmp_path):
+    # tomlkit's tests read the toml-test submodule. git archive leaves submodules out, so every commit showed as
+    # "tests already fail: FileNotFoundError". The copies now get each submodule's files from its checkout.
+    data = tmp_path / "cases"
+    data.mkdir()
+    git(data, "init", "-q")
+    (data / "case.txt").write_text("0.3\n")
+    commit(data, "cases")
+    root = tmp_path / "proj"
+    (root / "test").mkdir(parents=True)
+    git(root, "init", "-q")
+    (root / ".bite.ini").write_text("[bite]\ntest_command = node --test\n")
+    (root / "shop.js").write_text(SHOP)
+    (root / "test" / "shop.test.js").write_text(
+        TEST + "test('the cases are there', () => assert.ok(require('node:fs').readFileSync("
+               "require('node:path').join(__dirname, '..', 'cases', 'case.txt'), 'utf8')));\n")
+    git(root, "submodule", "add", "-q", str(data), "cases")
+    commit(root, "start")
+    (root / "shop.js").write_text(FIXED)
+    with open(root / "test" / "shop.test.js", "a") as f:
+        f.write(ROUNDS)
+    commit(root, "Fix total rounding")
+    out = subprocess.run([PY, str(KIT / "recent.py"), "--free", "--json"], cwd=root, capture_output=True, text=True,
+                         encoding="utf-8", timeout=300)
+    c = json.loads(out.stdout)["commits"][0]
+    assert c["result"] == "noticed", (c, out.stderr)
