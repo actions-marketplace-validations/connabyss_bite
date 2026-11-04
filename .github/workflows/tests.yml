@@ -8,12 +8,21 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  # Windows and Mac run the tests on 2 machines at once, each taking every other test (--part K/2, slowest first),
+  # so they take about half as long; Ubuntu, already quick, runs them all on one. Every test still runs on every OS
+  # and Python. The "test (os, python)" jobs below, named like the checks main requires, pass only when all of their
+  # parts passed.
+  part:
+    name: tests part ${{ matrix.part }} (${{ matrix.os }}, ${{ matrix.python }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.10", "3.13"]
+        part: [1, 2]
+        exclude:
+          - os: ubuntu-latest
+            part: 2
     # GitHub is short on Apple-chip Macs, so macos-latest jobs sit queued and get cancelled.
     # Run the Mac jobs on Intel Macs; the job names (and the required checks) stay the same.
     runs-on: ${{ matrix.os == 'macos-latest' && 'macos-15-intel' || matrix.os }}
@@ -41,4 +50,34 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: python -m pip install -e .[test]
       # 4 at a time (pytest-xdist): about 4x faster, most of all on Windows, where each test starts slower (#16).
-      - run: python -m pytest -v -n auto --dist worksteal --durations=20
+      - run: python -m pytest -v -n auto --dist worksteal --durations=20 --part ${{ matrix.part }}/${{ matrix.os == 'ubuntu-latest' && 1 || 2 }}
+      - name: Note that this part passed
+        shell: bash
+        run: echo ok > passed.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: passed-${{ matrix.os }}-${{ matrix.python }}-${{ matrix.part }}
+          path: passed.txt
+
+  test:
+    needs: part
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.13"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        continue-on-error: true  # no part passed
+        with:
+          pattern: passed-${{ matrix.os }}-${{ matrix.python }}-*
+          path: passed/
+      - name: All parts of the tests passed on ${{ matrix.os }}, Python ${{ matrix.python }}
+        shell: bash
+        run: |
+          want=${{ matrix.os == 'ubuntu-latest' && 1 || 2 }}
+          n=$(find passed -name passed.txt 2>/dev/null | wc -l)
+          echo "$n of $want parts passed"
+          [ "$n" -eq "$want" ] || { echo "::error::A half of the tests failed (or didn't run) on this OS and Python: see its tests part job."; exit 1; }
