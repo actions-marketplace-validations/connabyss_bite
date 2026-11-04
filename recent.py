@@ -978,7 +978,9 @@ def _ticker():
 
 
 def spelled(secs: float) -> str:
-    """A time in words a newcomer reads at a glance: "45 sec", "2 min", "3 min 30 sec" (not "3m 30s")."""
+    """A time in words a newcomer reads at a glance: "under 1 sec", "45 sec", "2 min", "3 min 30 sec"."""
+    if secs < 1:
+        return "under 1 sec"
     secs = round(secs)
     if secs < 60:
         return f"{secs} sec"
