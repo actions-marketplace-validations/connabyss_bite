@@ -3,6 +3,15 @@
 What changed in each Bite release, newest first. Numbers link to the pull request on
 github.com/connabyss/bite. Install or update: `pipx install --force bite-check --pip-args="--no-cache-dir"`.
 
+## Unreleased
+
+- A new push to a pull request checks only its new commits. Bite remembered each commit it checked with ✅, but
+  forgot every one of them as soon as any test file changed, so a pull request whose every commit adds a test (as
+  it should) started over from zero on each push: 17 commits, about 30 minutes, every time. Bite checks each
+  change on a copy of its own commit, so a test added or changed later can't undo that ✅. Now only a test file
+  deleted since, a changed setting or a new library version asks again, plus any test change for a ✅ that
+  leaned on a later test.
+
 ## 1.0.4 (2026-11-04)
 
 Thanks to [@hrithiksaini99](https://github.com/hrithiksaini99) for seven merged

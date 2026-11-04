@@ -24,8 +24,8 @@ Bite: did your coding agent's recent "done" commits really do what they said?
     bite --only 1a2b3c4d      check just the commits named (comma-separated)
     bite --jobs 4             check 4 commits at the same time on this machine. A test failing only counts if it
                               fails again with the machine to itself, so tests that share a port can't hide a gap
-    (A commit checked before with ✅, with the same tests and settings, isn't run again: bite_proof/checked.json.
-     A test deleted since, or a changed test command, makes it run again; --again always does.)
+    (A commit checked before with ✅ isn't run again: bite_proof/checked.json. New tests added later don't undo
+     that; a test deleted since, a changed test command or setting, or a new library version does; --again always.)
     bite --verbose            say what each test run is (change in, change out, the rerun, each piece) instead of
                               one line per finished check
     bite --keep-output        save what the tests printed, with the change in and taken out, for each commit:
@@ -1151,19 +1151,32 @@ DEPENDENCY_FILES = ("requirements*.txt", "constraints*.txt", "Pipfile", "Pipfile
                     "settings.gradle", "settings.gradle.kts", "gradle.properties", "*.versions.toml")
 
 
-def checked_key(root: Path, cfg) -> str:
+def checked_key(root: Path, cfg, tests: bool = True) -> str:
     """What a ✅ depends on besides the commit itself: today's test files, test setup and dependency files (a test
     deleted or weakened since, or a new version of a library, must be asked again), the test commands, the options that change the check, and Bite's version.
-    Read from git, so it costs no test run."""
+    Read from git, so it costs no test run. tests=False leaves today's test files out (see still_holds)."""
     import hashlib
     def counts(path: str) -> bool:
         name = path.rsplit("/", 1)[-1]
-        return (bite.is_test_file(path, cfg) or any(fnmatch.fnmatch(name, g) for g in cfg.test_setup)
+        return ((tests and bite.is_test_file(path, cfg)) or any(fnmatch.fnmatch(name, g) for g in cfg.test_setup)
                 or any(fnmatch.fnmatch(name, g) for g in DEPENDENCY_FILES))
     files = [ln for ln in (repo.git(root, "ls-tree", "-r", "HEAD") or "").splitlines()
              if "\t" in ln and counts(ln.split("\t", 1)[1])]
     parts = [_installed_version(), cfg.test_cmd, getattr(cfg, "free_cmd", ""), str(QUICK[0]), str(PART_RUNS[0]), *files]
     return hashlib.sha256("\n".join(parts).encode("utf-8", "surrogateescape")).hexdigest()[:20]
+
+
+def still_holds(root: Path, c: dict, old: dict, key: str, base: str, cfg) -> bool:
+    """Whether a ✅ remembered for this commit still holds. Bite checks a fix on a copy of its own commit, so today's
+    test files only matter to a ✅ that leaned on them: a piece of the change checked on today's code, or a test
+    deleted since. A ✅ that didn't lean on them holds while the settings, test setup and dependency files are the
+    same and no test file the commit had is deleted since. Before, any test file changed or added anywhere asked
+    every commit again: a pull request whose every commit adds a test started over from zero on each push."""
+    if came_back(root, c):
+        return False
+    if old.get("key") == key:
+        return True
+    return (old.get("base") == base and old.get("today") is False and not tests_gone_since(root, c, cfg))
 
 
 def remembered(root: Path) -> dict:
@@ -1276,6 +1289,7 @@ def check_undo(root: Path, c: dict, cfg) -> str:
         c["caught"] = caught_by(undone["out"])
         hung = not c["caught"] and hang_note(undone, now)
         missed = unnoticed_part(root, c, folder, fcfg, fast)
+        c["today"] = bool(missed)  # pieces checked on today's code: the answer leans on today's tests
         if missed and c.get("skip"):
             return f"not flagged: {c['skip']}"
         caught, still = c["caught"], []
@@ -1291,6 +1305,7 @@ def check_undo(root: Path, c: dict, cfg) -> str:
             return "unguarded: part"
         gone = [] if QUICK[0] else tests_gone_since(root, c, cfg)
         if gone:  # a test noticed it then, but test files were deleted since: does one still notice it today?
+            c["today"] = True
             caught = c["caught"]
             if today_notices(root, c, cfg) is False:
                 c["caught"], c["gone"] = caught, gone
@@ -3226,16 +3241,17 @@ def main(argv=None):
         print(f"  --shard {part}/{parts}: this run checks {len(free)} of them", flush=True)
     print(f"  free check of {len(free)}: each runs the tests with and without the change", flush=True)
     memo = {} if "--again" in argv else remembered(root)
-    key = checked_key(root, cfg)
+    key, base = checked_key(root, cfg), checked_key(root, cfg, tests=False)
     todo = []
-    for c in free:  # a commit checked before with ✅, with the same tests and settings, isn't run again
+    for c in free:  # a commit checked before with ✅ isn't run again while the answer still holds
         old = memo.get(c["sha"])
-        if old and old.get("key") == key and not came_back(root, c):
+        if old and still_holds(root, c, old, key, base, cfg):
             c["undo"], c["caught"], c["remembered"] = old["undo"], old.get("caught", ""), True
         else:
             todo.append(c)
     if len(todo) < len(free):
-        print(f"  {len(free) - len(todo)} checked before with the same tests and settings: not run again "
+        print(f"  {plural(len(free) - len(todo), 'commit')} checked before with ✅, and nothing that answer depends on "
+              "changed: not run again "
               "(--again runs them anyway)", flush=True)
 
     def done(c):
@@ -3248,7 +3264,8 @@ def main(argv=None):
         if c.get("why"):  # say what broke, so it's clear whether it's the project or the copy
             print(f"           why: {c['why']}", flush=True)
         if c["undo"].startswith("guarded") and not c.get("remembered"):
-            memo[c["sha"]] = {"key": key, "undo": c["undo"], "caught": c.get("caught", "")}
+            memo[c["sha"]] = {"key": key, "base": base, "today": bool(c.get("today")), "undo": c["undo"],
+                              "caught": c.get("caught", "")}
             remember(root, memo)
         save_log(root, kept, cs)
     PROGRESS.update(start=time.monotonic(), done=0, total=len(free))

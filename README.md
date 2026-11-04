@@ -134,9 +134,11 @@ Bite runs your tests several times for each change, so a slow test suite makes a
 - `bite --free --jobs 4` checks 4 changes at a time. If two checks get in each other's way (a shared file, a port),
   Bite runs the failed one again on its own before it counts, so a clash never shows up as a result.
 - Bite remembers the changes it checked with ✅ in `bite_proof/checked.json`, and skips them next time when the
-  tests, settings and dependency files (requirements.txt, package-lock.json, go.sum, ...) are the same. Add,
-  change or delete a test, or update a library, and those changes are checked again. `--again`
-  checks everything anyway. The Action keeps that memory between runs for you.
+  settings and dependency files (requirements.txt, package-lock.json, go.sum, ...) are the same. Bite checks each
+  change on a copy of its own commit, so tests added or changed later don't undo a ✅; a test file deleted since,
+  a new library version or a changed test command does. A ✅ that leaned on later tests (a piece of the change
+  only a later test notices) is checked again whenever any test changes. `--again` checks everything anyway. The
+  Action keeps that memory between runs for you, so a new push to a pull request checks only its new commits.
 - `bite --free --shard 2/5` runs part 2 of 5. Run parts 1/5 to 5/5 on 5 machines at once and together they check
   every change, in about a fifth of the time. On GitHub Actions that's a matrix:
 
