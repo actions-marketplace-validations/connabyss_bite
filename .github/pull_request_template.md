@@ -7,6 +7,6 @@ Fixes #
 
 - [ ] It links the issue it fixes (a small fix can skip this).
 - [ ] For a bug fix: a test that fails without the change and passes with it (docs and looks can skip this). `bite live` tells you if any test notices your change.
-- [ ] `python -m pytest` passes, and CI is green.
+- [ ] `python -m pytest` passes (it runs `tests/selftest.py` too), and CI is green. Changed a message? Search `tests/` for its old wording.
 
 Nice to have, never required: light and dark screenshots if it changes how something looks (we can take them for you), and an `Assisted-by: <tool>` line in the commit or here if an AI helped.

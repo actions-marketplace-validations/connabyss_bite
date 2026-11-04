@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bite-check"
-version = "1.0.1"
+version = "1.0.4"
 description = "Checks whether the \"fixed\" in your coding agent's recent commits is actually true."
 readme = "README.md"
 license = "MIT"
@@ -27,6 +27,7 @@ test = ["pytest", "pytest-xdist"]
 
 [project.scripts]
 bite = "recent:main"
+bite-check = "recent:main"  # so `uvx bite-check` and `pipx run bite-check` work with no --from
 
 [project.urls]
 Homepage = "https://github.com/connabyss/bite"
@@ -34,7 +35,7 @@ Source = "https://github.com/connabyss/bite"
 Issues = "https://github.com/connabyss/bite/issues"
 
 [tool.setuptools]
-py-modules = ["ask", "bite", "bite_mcp", "live", "recent", "repo"]
+py-modules = ["ask", "bite", "bite_check", "bite_mcp", "live", "recent", "repo"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

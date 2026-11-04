@@ -204,6 +204,9 @@ def verdict(c: dict) -> tuple:
     who = f"commit {by['sha'][:8]} (\"{by['subject']}\")" if by else "a later commit"
     if u == "undone since":
         return "gap", "🔁 UNDONE BY A LATER COMMIT", f"It's gone from today's code: {who} put the old code back."
+    if u == "replaced since":
+        return "cant", "➖ REPLACED BY A LATER FIX", (f"{who[0].upper() + who[1:]} took it out with its tests and fixed "
+                                                     "it another way, with tests of its own.")
     if u == "reverted since":
         return "cant", "➖ REVERTED ON PURPOSE", f"{who[0].upper() + who[1:]} reverted it on purpose, so there's nothing left to guard."
     if u.startswith("closed since"):
@@ -337,7 +340,7 @@ def ask(root: Path, question: str, last: int = 100, most: int = 3, free: bool = 
         hint = "" if free or has_key() else " (With an API key, Bite can also match vaguer questions.)"
         return {"status": "none", "checked": [], "text": f"Bite found no commit{span} that matches your words. Try "
                 f"words from the commit message, or a function or file name it changed.{hint}"}
-    log(f"Bite: checking {len(picked)} matching commit(s): each runs your tests twice (with and without the change)...")
+    log(f"Bite: checking {recent.plural(len(picked), 'matching commit')}: each runs your tests twice (with and without the change)...")
     t0 = time.time()
     for c in picked:
         c["undo"] = recent.undo_check(root, c, cfg)

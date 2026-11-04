@@ -13,6 +13,32 @@ Bite checks whether an AI coding agent's "fixed" is actually true.
 
 <img alt="bite --demo: one fix is noticed by a test, the other has no test at all" src="https://raw.githubusercontent.com/connabyss/bite/main/assets/bite-demo.svg" width="760">
 
+**Try it now.** It's free, needs no key, and never changes your files. If you have Python, paste these two
+lines into any terminal window (PowerShell, cmd, Terminal):
+
+```
+python -m pip install bite-check
+python -m bite_check --free
+```
+
+Outside a project, Bite first shows a demo on a tiny made-up one. To check your own project, type the second line
+and a space, drag your project's folder into the window (that types its path), and press Enter.
+
+Have [pipx](https://pipx.pypa.io) or [uv](https://docs.astral.sh/uv/)? One line does it, no install:
+`pipx run bite-check --free` or `uvx bite-check --free`. (On Linux or a Mac, if pip says "externally managed",
+use one of those.) If your commits never say "fix", add `--any` to check every recent change. To keep Bite
+installed as a `bite` command, see [Try it in a minute](#try-it-in-a-minute).
+
+**Here for Hack Week or your first open-source PR?** These [good first issues](https://github.com/connabyss/bite/labels/good%20first%20issue)
+are small, and each one says where to look and when it's done. Comment on one to claim it. Or try to
+[fool Bite](https://github.com/connabyss/bite/issues/156): sneak a "fix" past it.
+
+> **Bite does this:** takes each recent fix back out of a copy of your project, runs your tests, and tells you
+> whether any test noticed. It never changes your files or pushes anything, and the free check costs nothing.
+>
+> **You decide that:** whether to add the missing test, or leave it because the change didn't need one (a rename,
+> a tidy-up). A ✅ means a test would catch that fix breaking. It doesn't prove the code has no other bugs.
+
 ## Why you need this
 
 When an AI fixes a bug for you, it often says "Fixed, and I added a test." If you don't read code, you can't tell
@@ -77,9 +103,11 @@ out and runs the tests, and you see the difference:
 It needs nothing besides git, takes a few seconds, and doesn't touch your files. Then try it on your own project:
 
 ```
-cd /path/to/your-repo
-bite --free
+bite --free /path/to/your-repo
 ```
+
+(Or type `bite --free ` and drag the project's folder into the window. From inside the project's folder, plain
+`bite --free` works too.)
 
 `bite` now works in any terminal window. `bite --free` needs no key and costs nothing. It takes each recent
 change back out, runs your tests, and lists the changes no test guards, plus any new test that still passes
@@ -106,9 +134,11 @@ Bite runs your tests several times for each change, so a slow test suite makes a
 - `bite --free --jobs 4` checks 4 changes at a time. If two checks get in each other's way (a shared file, a port),
   Bite runs the failed one again on its own before it counts, so a clash never shows up as a result.
 - Bite remembers the changes it checked with ✅ in `bite_proof/checked.json`, and skips them next time when the
-  tests, settings and dependency files (requirements.txt, package-lock.json, go.sum, ...) are the same. Add,
-  change or delete a test, or update a library, and those changes are checked again. `--again`
-  checks everything anyway. The Action keeps that memory between runs for you.
+  settings and dependency files (requirements.txt, package-lock.json, go.sum, ...) are the same. Bite checks each
+  change on a copy of its own commit, so tests added or changed later don't undo a ✅; a test file deleted since,
+  a new library version or a changed test command does. A ✅ that leaned on later tests (a piece of the change
+  only a later test notices) is checked again whenever any test changes. `--again` checks everything anyway. The
+  Action keeps that memory between runs for you, so a new push to a pull request checks only its new commits.
 - `bite --free --shard 2/5` runs part 2 of 5. Run parts 1/5 to 5/5 on 5 machines at once and together they check
   every change, in about a fifth of the time. On GitHub Actions that's a matrix:
 
@@ -258,7 +288,7 @@ jobs:
       # install what your tests need here, e.g. for Python:
       - uses: actions/setup-python@v7
       - run: python -m pip install pytest -r requirements.txt
-      - uses: connabyss/bite@v1.0.1
+      - uses: connabyss/bite@v1.0.4
 ```
 
 Options go under `with:`: `args` (extra `bite` options, e.g. `--serious`), `max-commits` (default 20),
@@ -272,7 +302,7 @@ When no test noticed a change, Bite can write that test for you. Add your Anthro
 named `ANTHROPIC_API_KEY`, then:
 
 ```yaml
-      - uses: connabyss/bite@v1.0.1
+      - uses: connabyss/bite@v1.0.4
         with:
           write-tests: true
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -389,7 +419,7 @@ jobs:
         with:
           fetch-depth: 0
       # install what your tests need here, as in the pull request check
-      - uses: connabyss/bite@v1.0.1
+      - uses: connabyss/bite@v1.0.4
         with:
           badge-branch: bite-badge
           max-commits: 10

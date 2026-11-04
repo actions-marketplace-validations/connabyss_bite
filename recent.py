@@ -4,7 +4,10 @@ Bite: did your coding agent's recent "done" commits really do what they said?
     bite                      check the last 40 commits (step 2 needs an API key)
     bite --version            print the installed version, and the line to update when a newer one is out
     bite --free               step 1 only: no key, no cost
-    bite --demo               try it on a tiny made-up project first (free, about 30 seconds)
+    bite --demo               try it on a tiny made-up project first (free, about 30 seconds); run outside a
+                              project, plain bite does the same
+    bite --free path/to/repo  check that project without going into its folder first (you can drag the folder
+                              into the terminal window to type its path)
     bite --demo comeback      see the comeback alarm: a later commit quietly undoes a fix, and Bite names it
     bite --last 80 --suspects 3 --budget 1.00
     bite --serious            only fix claims about data, money, logins, security, crashes or leaks
@@ -21,8 +24,12 @@ Bite: did your coding agent's recent "done" commits really do what they said?
     bite --only 1a2b3c4d      check just the commits named (comma-separated)
     bite --jobs 4             check 4 commits at the same time on this machine. A test failing only counts if it
                               fails again with the machine to itself, so tests that share a port can't hide a gap
-    (A commit checked before with ✅, with the same tests and settings, isn't run again: bite_proof/checked.json.
-     A test deleted since, or a changed test command, makes it run again; --again always does.)
+    (A commit checked before with ✅ isn't run again: bite_proof/checked.json. New tests added later don't undo
+     that; a test deleted since, a changed test command or setting, or a new library version does; --again always.)
+    bite --verbose            say what each test run is (change in, change out, the rerun, each piece) instead of
+                              one line per finished check
+    bite --keep-output        save what the tests printed, with the change in and taken out, for each commit:
+                              bite_proof/output/<commit>.txt (to see why Bite read a run the way it did)
     bite --json               print the results as JSON for other programs (the rest goes to stderr); they're
                               also saved in bite_proof/results.json on every run
     bite --write-tests        after the free check, write the missing test for each change no test noticed
@@ -67,7 +74,6 @@ must use API keys. The commits it checks can come from any coding AI or person.
 """
 
 import ast
-import asyncio
 import difflib
 import fnmatch
 import io
@@ -186,11 +192,18 @@ LFS_WARNED = set()
 
 # ---- which commits ---------------------------------------------------------------
 
-def commits(root: Path, last: int, since: str = "") -> list:
+def commits(root: Path, last: int, since: str = "", named: list | None = None) -> list:
     # With since, only commits since doesn't have: a pull request that merged its base back in would otherwise
-    # list the base's newer commits first, crowding out its own.
+    # list the base's newer commits first, crowding out its own. With named, just those commits (--only), however
+    # far back they are: they used to be looked for only among the last 40.
     span = [f"{since}..HEAD"] if since else []
-    raw = repo.git(root, "log", f"-n{last}", "--no-merges", "--format=%H%x1f%an%x1f%ae%x1f%s%x1f%b%x1e", *span) or ""
+    if named is not None:
+        shas = [repo.git(root, "rev-parse", "--verify", "-q", f"{n}^{{commit}}") for n in named]
+        span = list(dict.fromkeys(x for x in shas if x))
+        if not span:
+            return []
+    log = ["log", "--no-walk=sorted"] if named is not None else ["log", f"-n{last}", "--no-merges"]
+    raw = repo.git(root, *log, "--format=%H%x1f%an%x1f%ae%x1f%s%x1f%b%x1e", *span) or ""
     out = []
     for rec in raw.split("\x1e"):
         parts = rec.strip("\n").split("\x1f")
@@ -430,7 +443,10 @@ def files_of(root: Path, c: dict, cfg) -> None:
     c["moved"] = {n: o for n, o in moved.items() if n in c["code"]}
     # Code in a language the test command doesn't run can't fail a test: taking it out says nothing about it.
     runs = repo.runs_language(cfg.test_cmd)[1]
-    c["other_lang"] = [n for n in c["code"] if runs and Path(n).suffix.lower() not in runs]
+    # A TypeScript declaration file (.d.ts) holds types only: no test runs it, so taking it out can't fail one
+    # (dayjs 4fbe94aa and f68d73ef were flagged for changing only types/index.d.ts).
+    c["other_lang"] = [n for n in c["code"] if (runs and Path(n).suffix.lower() not in runs)
+                       or re.search(r"\.d\.[cm]?ts$", n.lower())]
     c["code"] = [n for n in c["code"] if n not in c["other_lang"]]
     stat = repo.git(root, "diff", "-M", "--shortstat", f"{c['sha']}^", c["sha"], "--", *code_paths(c)) if c["code"] else ""
     c["lines"] = sum(int(x) for x in re.findall(r"(\d+) (?:insertion|deletion)", stat or ""))
@@ -454,10 +470,50 @@ def export(root: Path, sha: str, cfg) -> Path:
     data = subprocess.run(["git", "archive", "--format=tar", sha], cwd=root, capture_output=True).stdout
     untar(data, dest)
     lfs_fill(root, dest, data)
+    submodule_fill(root, dest, sha)
     for name in cfg.copy_ignore:  # nothing to do for most repos: ignored files aren't committed
         for p in dest.rglob(name):
             shutil.rmtree(p, ignore_errors=True) if p.is_dir() else None
+    repo.link_node_modules(root, dest)  # after the loop above, which would otherwise remove what the links point to
     return dest
+
+
+SUB_WARNED = set()
+
+
+def submodule_fill(root: Path, dest: Path, sha: str) -> int:
+    """git archive leaves git submodules out: their folders come out empty, and a test that reads one fails on
+    every copy (tomlkit's toml-test suite: "tests already fail: FileNotFoundError" on every commit). Fill each from
+    its checkout in the project, at the commit this one pins (or what's checked out, if that commit isn't there).
+    Warn once about any that aren't checked out. Returns how many were left empty."""
+    if not (dest / ".gitmodules").is_file():
+        return 0
+    left = []
+    for line in (repo.git(root, "ls-tree", "-r", "--full-tree", sha) or "").splitlines():
+        meta, _, path = line.partition("\t")
+        parts = meta.split()
+        if len(parts) < 3 or parts[0] != "160000":
+            continue
+        sub, target = root / path, dest / path
+        if not target.resolve().is_relative_to(dest.resolve()):
+            continue
+        data = b""
+        if (sub / ".git").exists():
+            for rev in (parts[2], "HEAD"):
+                r = subprocess.run(["git", "archive", "--format=tar", rev], cwd=sub, capture_output=True)
+                if r.returncode == 0 and r.stdout:
+                    data = r.stdout
+                    break
+        if data:
+            target.mkdir(parents=True, exist_ok=True)
+            untar(data, target)
+        else:
+            left.append(path)
+    if left and str(root) not in SUB_WARNED:
+        SUB_WARNED.add(str(root))
+        print(f"  note: {len(left)} git submodule(s) aren't checked out, so Bite's copies don't have them (e.g. "
+              f"{left[0]}): run `git submodule update --init` so tests that read them work there.", flush=True)
+    return len(left)
 
 
 def untar(data: bytes, dest: Path) -> None:
@@ -887,8 +943,32 @@ def came_back(root: Path, c: dict) -> str:
     if not culprit:
         return "undone since"
     c["undone_by"] = {"sha": culprit, "subject": repo.git(root, "log", "-n1", "--format=%s", culprit) or ""}
+    if replaced(root, sha, culprit, c.get("tests") or []):
+        return "replaced since"
     # "Revert ...", "fix #587 by reverting ...": done on purpose, so a note rather than the alarm
     return "reverted since" if re.search(r"(?i)\brevert", c["undone_by"]["subject"]) else "undone since"
+
+
+def replaced(root: Path, sha: str, culprit: str, tests: list) -> bool:
+    """The commit that put the old code back also took out the fix's own test lines and added tests of its own:
+    a replacement fix, done somewhere else (dayjs b575c81a fixed d0e6738a's timezone bug in the plugin instead,
+    10 minutes later, with new tests). That's a note, not the alarm: nobody lost the fix by accident."""
+    if not tests:
+        return False
+    fix = repo.git(root, "diff", "--no-color", "-U0", f"{sha}^", sha, "--", *tests) or ""
+    fix_lines = {ln[1:].strip() for ln in fix.splitlines() if ln.startswith("+") and not ln.startswith("+++")
+                 and len(ln[1:].strip()) >= 10}
+    cfg, at_file, took_out, added = repo.load_cfg(root), "", False, False
+    for ln in (repo.git(root, "show", "--format=", "--no-color", "-U0", culprit) or "").splitlines():
+        if ln.startswith("+++ "):
+            at_file = ln[6:] if ln.startswith("+++ b/") else ""
+        elif ln.startswith("--- ") or not at_file and not ln.startswith("-"):
+            continue
+        elif ln.startswith("-") and ln[1:].strip() in fix_lines:
+            took_out = True
+        elif ln.startswith("+") and at_file and bite.is_test_file(at_file, cfg) and len(ln[1:].strip()) >= 10:
+            added = True
+    return took_out and added
 
 
 def redone(root: Path, sha: str, culprit: str, code: list) -> bool:
@@ -923,7 +1003,10 @@ def fail_why(run: dict) -> str:
     when the runner gives them (see caught_by), else the last error line, else how the run ended."""
     out = run["out"]
     msg = re.search(r"^FAILED \S+ - (.+)$", out, re.M)  # pytest's summary line carries the error
-    errs = [ln.strip(" E>") for ln in out.splitlines() if re.search(r"\b\w+(?:Error|Exception)\b:|No module named ", ln)]
+    # tap repeats the error in its escaped diff dump ("+    TypeError: x\\r"): the diff marker and a literal \r or \n
+    # at the end aren't part of the error (node-semver on Windows, 11-03).
+    clean = lambda ln: re.sub(r"(?:\\[rn])+$", "", re.sub(r"^[+-]\s+", "", ln.strip(" E>\t")))  # noqa: E731
+    errs = [clean(ln) for ln in out.splitlines() if re.search(r"\b\w+(?:Error|Exception)\b:|No module named ", ln)]
     err = msg.group(1).strip() if msg else errs[-1] if errs else ""
     who = caught_by(out).replace("`", "")
     return ((f"{who} failed" + (f": {err}" if err else "")) if who else err or run["why"])[:160]
@@ -948,6 +1031,62 @@ _BUSY = [0, False]  # test runs going on side by side, and whether one has the m
 _SHARED = {}  # each test run going on now: whether another ran beside it at any point
 
 
+TICK = 30  # seconds between "still running" lines while test runs go on
+_ACTIVE = {}  # each test run going on now: when it started
+_TICKER = [None]  # the one thread printing those lines, while any run is going on
+PROGRESS = {"start": 0.0, "done": 0, "total": 0}  # the free check as a whole, for those lines
+VERBOSE = [False]  # --verbose: a line before every test run (change in, change out, reruns, pieces)
+KEEP = [False]  # --keep-output: save each commit's test output in bite_proof/output/
+
+
+def _ticker():
+    """Every TICK seconds, one line for all the test runs going on (one per commit with --jobs), so a slow suite
+    doesn't look stuck. Ends when none is left."""
+    while True:
+        with _GATE:
+            if _GATE.wait_for(lambda: not _ACTIVE, timeout=TICK):  # the last run ended: stop now, not a tick later
+                _TICKER[0] = None
+                return
+            now = time.monotonic()
+            if PROGRESS["total"]:
+                line = (f"still checking: {PROGRESS['done']} of {PROGRESS['total']} done, "
+                        f"{spelled(now - PROGRESS['start'])} so far...")
+            else:
+                line = f"still running the tests, {spelled(now - min(_ACTIVE.values()))} so far..."
+        print(f"  {line}", flush=True)
+
+
+def spelled(secs: float) -> str:
+    """A time in words a newcomer reads at a glance: "under 1 sec", "45 sec", "2 min", "3 min 30 sec"."""
+    if secs < 1:
+        return "under 1 sec"
+    secs = round(secs)
+    if secs < 60:
+        return f"{secs} sec"
+    return f"{secs // 60} min" + (f" {secs % 60} sec" if secs % 60 else "")
+
+
+def plural(n: int, word: str) -> str:
+    """One commit, two commits: no "(s)" for a newcomer to decode."""
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+def _timed(fcfg, folder) -> dict:
+    """bite.run_tests, counted in the "still running" lines while it goes on."""
+    me = object()
+    with _GATE:
+        _ACTIVE[me] = time.monotonic()
+        if _TICKER[0] is None:
+            _TICKER[0] = threading.Thread(target=_ticker, daemon=True)
+            _TICKER[0].start()
+    try:
+        return bite.run_tests(fcfg, folder)
+    finally:
+        with _GATE:
+            del _ACTIVE[me]
+            _GATE.notify_all()
+
+
 def run_tests(fcfg, folder, alone: bool = False, confirm: bool = True) -> dict:
     """bite.run_tests, and with --jobs, side by side with other commits' runs. Tests run side by side can trip over
     each other (the same port, the same database), and a failure caused by that would read as "a test noticed" and
@@ -957,7 +1096,7 @@ def run_tests(fcfg, folder, alone: bool = False, confirm: bool = True) -> dict:
     alone: run it with the machine to itself straight away. confirm=False: return a failed shared run as it is
     (marked "shared"), for a caller whose next run (alone) confirms it anyway."""
     if JOBS[0] <= 1:
-        return bite.run_tests(fcfg, folder)
+        return _timed(fcfg, folder)
     if alone:
         return _run_alone(fcfg, folder)
     me = object()
@@ -968,7 +1107,7 @@ def run_tests(fcfg, folder, alone: bool = False, confirm: bool = True) -> dict:
         for other in _SHARED:  # every run going on now shares the machine with this one
             _SHARED[other] = _SHARED[other] or _SHARED[me]
     try:
-        r = bite.run_tests(fcfg, folder)
+        r = _timed(fcfg, folder)
     finally:
         with _GATE:
             _BUSY[0] -= 1
@@ -986,7 +1125,7 @@ def _run_alone(fcfg, folder) -> dict:
         _GATE.wait_for(lambda: not _BUSY[1] and not _BUSY[0])
         _BUSY[1] = True
     try:
-        return bite.run_tests(fcfg, folder)
+        return _timed(fcfg, folder)
     finally:
         with _GATE:
             _BUSY[1] = False
@@ -1011,19 +1150,32 @@ DEPENDENCY_FILES = ("requirements*.txt", "constraints*.txt", "Pipfile", "Pipfile
                     "settings.gradle", "settings.gradle.kts", "gradle.properties", "*.versions.toml")
 
 
-def checked_key(root: Path, cfg) -> str:
+def checked_key(root: Path, cfg, tests: bool = True) -> str:
     """What a ✅ depends on besides the commit itself: today's test files, test setup and dependency files (a test
     deleted or weakened since, or a new version of a library, must be asked again), the test commands, the options that change the check, and Bite's version.
-    Read from git, so it costs no test run."""
+    Read from git, so it costs no test run. tests=False leaves today's test files out (see still_holds)."""
     import hashlib
     def counts(path: str) -> bool:
         name = path.rsplit("/", 1)[-1]
-        return (bite.is_test_file(path, cfg) or any(fnmatch.fnmatch(name, g) for g in cfg.test_setup)
+        return ((tests and bite.is_test_file(path, cfg)) or any(fnmatch.fnmatch(name, g) for g in cfg.test_setup)
                 or any(fnmatch.fnmatch(name, g) for g in DEPENDENCY_FILES))
     files = [ln for ln in (repo.git(root, "ls-tree", "-r", "HEAD") or "").splitlines()
              if "\t" in ln and counts(ln.split("\t", 1)[1])]
     parts = [_installed_version(), cfg.test_cmd, getattr(cfg, "free_cmd", ""), str(QUICK[0]), str(PART_RUNS[0]), *files]
     return hashlib.sha256("\n".join(parts).encode("utf-8", "surrogateescape")).hexdigest()[:20]
+
+
+def still_holds(root: Path, c: dict, old: dict, key: str, base: str, cfg) -> bool:
+    """Whether a ✅ remembered for this commit still holds. Bite checks a fix on a copy of its own commit, so today's
+    test files only matter to a ✅ that leaned on them: a piece of the change checked on today's code, or a test
+    deleted since. A ✅ that didn't lean on them holds while the settings, test setup and dependency files are the
+    same and no test file the commit had is deleted since. Before, any test file changed or added anywhere asked
+    every commit again: a pull request whose every commit adds a test started over from zero on each push."""
+    if came_back(root, c):
+        return False
+    if old.get("key") == key:
+        return True
+    return (old.get("base") == base and old.get("today") is False and not tests_gone_since(root, c, cfg))
 
 
 def remembered(root: Path) -> dict:
@@ -1037,9 +1189,23 @@ def remember(root: Path, memo: dict) -> None:
     (proof_dir(root) / "checked.json").write_text(json.dumps(memo, indent=1), encoding="utf-8")
 
 
+def keep_output(root: Path, c: dict, what: str, run: dict) -> None:
+    """With --keep-output, add one test run's output to bite_proof/output/<commit>.txt, under a line saying which
+    run it was. Hand-checking how Bite read a run needed a wrapper around the test command before (eemeli/yaml)."""
+    if not KEEP[0] or not run:
+        return
+    d = proof_dir(root) / "output"
+    d.mkdir(exist_ok=True)
+    first = what.endswith("change in")  # each check starts its commit's file afresh
+    with open(d / f"{c['sha'][:8]}.txt", "w" if first else "a", encoding="utf-8", errors="replace") as f:
+        f.write(f"===== {what}: {'passed' if run.get('ok') else 'failed'} =====\n{run.get('out', '')}\n")
+
+
 def doing(c: dict, text: str) -> None:
-    """One line before each test run, so a slow check shows what it is doing instead of going quiet."""
-    print(f"    {c['sha'][:8]} {text}", flush=True)
+    """With --verbose, one line before each test run saying what it is. Without it the log stays calm: one line per
+    finished check, and a "still checking" line every TICK seconds."""
+    if VERBOSE[0]:
+        print(f"    {c['sha'][:8]} {text}", flush=True)
 
 
 def undo_check(root: Path, c: dict, cfg) -> str:
@@ -1065,6 +1231,13 @@ def check_undo(root: Path, c: dict, cfg) -> str:
     try:
         doing(c, "running the tests with the change in...")
         now = run_tests(fcfg, folder)
+        if not now["ok"] and not now.get("hung") and not now["out"].startswith("not run:"):
+            # Once more before giving up on this commit: a test that fails now and then (h2's Hypothesis test, on
+            # a cold copy) would otherwise skip a commit whose tests pass.
+            doing(c, "the tests failed with nothing taken out: running them once more, in case that was luck...")
+            again = run_tests(fcfg, folder, alone=True)
+            now = again if again["ok"] else now
+        keep_output(root, c, "the tests with the change in", now)
         if not now["ok"]:
             c["why"] = fail_why(now)
             return "tests fail at this commit"
@@ -1072,18 +1245,27 @@ def check_undo(root: Path, c: dict, cfg) -> str:
             return "no tests ran at this commit"
         bite.cap_hang(fcfg, now)
         take_out(root, c, folder)
-        doing(c, f"running them with the change taken out (they took {took(now)} with it in)...")
-        # A failure beside another commit's run (--jobs) is confirmed by the next run, alone: the rerun below, or
-        # here when there is none. Confirming it straight away too ran every noticed change's tests twice more.
-        undone = run_tests(fcfg, folder, confirm=False)
-        if undone.get("shared") and (QUICK[0] or bite.load_failure(undone["out"])):
-            undone = run_tests(fcfg, folder, alone=True)
+        # The commit's own tests first: when they notice the change is gone (and fail again, and pass with it
+        # back in), the whole suite with the change out would only say the same thing, more slowly.
+        undone, fast = own_tests_notice(root, c, folder, fcfg)
+        if undone is None:
+            doing(c, f"running them with the change taken out (they took {took(now)} with it in)...")
+            # A failure beside another commit's run (--jobs) is confirmed by the next run, alone: the rerun below, or
+            # here when there is none. Confirming it straight away too ran every noticed change's tests twice more.
+            undone = run_tests(fcfg, folder, confirm=False)
+            if undone.get("shared") and (QUICK[0] or bite.load_failure(undone["out"])):
+                undone = run_tests(fcfg, folder, alone=True)
+        keep_output(root, c, "with the change taken out" + (" (only this commit's own tests)" if fast else ""), undone)
 
         def flag():  # would be flagged: first rule out the usual harmless reasons
             if c.get("skip"):
                 return f"not flagged: {c['skip']}"
             if c.get("test_code") and not tests_touch(root, c):
                 return "not flagged: its tests are about other code"
+            skipped = c.get("test_code") and own_test_skipped(root, c, undone["out"])
+            if skipped:
+                return (f"not flagged: its test `{skipped}` was skipped on "
+                        f"{ {'win': 'Windows', 'mac': 'macOS', 'linux': 'Linux'}[HERE]}, so it couldn't notice here")
             if closed_since(root, c, cfg):
                 return "closed since: today's tests catch it"
             return "TEST GUARDS NOTHING" if c.get("test_code") else "unguarded"
@@ -1092,19 +1274,21 @@ def check_undo(root: Path, c: dict, cfg) -> str:
         if undone["ok"]:
             return flag()
         crashed = bite.load_failure(undone["out"])
-        if not crashed and not QUICK[0]:
+        if not crashed and not QUICK[0] and not fast:
             # Once more: a test that fails now and then (flaky) can fail by luck. Only a test that fails every
             # time the change is out counts as noticing it.
-            doing(c, "a test failed: running them once more, to rule out a test that fails by luck"
+            doing(c, "good sign, a test noticed the change was gone: running them once more to make sure it wasn't luck"
                      + (" (alone, so the other check running beside it can't be the cause)..." if undone.get("shared") else "..."))
-            again = run_tests(fcfg, folder, alone=bool(undone.get("shared")))
+            fast = failed_again(root, c, folder, fcfg, undone["out"], alone=bool(undone.get("shared")))
+            again = {"ok": False} if fast else run_tests(fcfg, folder, alone=bool(undone.get("shared")))
             if again["ok"]:
                 if not undone.get("shared"):  # beside another run, it may have been the other run's doing
                     c["flaky"] = caught_by(undone["out"]) or "a test"
                 return flag()
         c["caught"] = caught_by(undone["out"])
         hung = not c["caught"] and hang_note(undone, now)
-        missed = unnoticed_part(root, c, folder, fcfg)
+        missed = unnoticed_part(root, c, folder, fcfg, fast)
+        c["today"] = bool(missed)  # pieces checked on today's code: the answer leans on today's tests
         if missed and c.get("skip"):
             return f"not flagged: {c['skip']}"
         caught, still = c["caught"], []
@@ -1120,6 +1304,7 @@ def check_undo(root: Path, c: dict, cfg) -> str:
             return "unguarded: part"
         gone = [] if QUICK[0] else tests_gone_since(root, c, cfg)
         if gone:  # a test noticed it then, but test files were deleted since: does one still notice it today?
+            c["today"] = True
             caught = c["caught"]
             if today_notices(root, c, cfg) is False:
                 c["caught"], c["gone"] = caught, gone
@@ -1249,12 +1434,13 @@ def set_part(c: dict, missed: list) -> None:
             c["part_undo"][rel] = without(a, b, [op for p in mine for op in p[3][2]])
 
 
-def unnoticed_part(root: Path, c: dict, folder: Path, fcfg) -> list:
+def unnoticed_part(root: Path, c: dict, folder: Path, fcfg, fast=None) -> list:
     """With the whole change out a test failed. Does one fail with each piece of it out alone? A commit can bundle
     a tested change with an untested one (or add a helper that a test only calls): the tested piece shouldn't vouch
     for the rest. Returns the pieces no test noticed (as parts gives them), or [] when every piece was noticed, the
     commit is one piece, or it has too many to try. When no piece alone is noticed, the pieces only count together,
-    so that says nothing either."""
+    so that says nothing either. fast: failed_again's command that runs only the tests that noticed the whole
+    change; a piece they notice needs no whole-suite run."""
     if QUICK[0]:
         return []
     ps = parts(root, c, most=MAX_PARTS)
@@ -1276,7 +1462,9 @@ def unnoticed_part(root: Path, c: dict, folder: Path, fcfg) -> list:
         else:
             bite.safe_write(folder, folder / rel, undone)
         doing(c, f"piece {n} of {len(ps)} ({p[1] + ' in ' if p[1] else ''}{p[0]}) taken out alone: does a test notice it?")
-        run = run_tests(fcfg, folder)
+        run = run_tests(fast, folder) if fast else {"ok": True}
+        if run["ok"]:  # only the tests that noticed the whole change ran (or none): the whole suite decides
+            run = run_tests(fcfg, folder)
         if run["ok"] and not ran_nothing(bite.tests_cmd(fcfg), run["out"]):
             missed.append(p)
     return [] if len(missed) == len(ps) else missed
@@ -1284,7 +1472,7 @@ def unnoticed_part(root: Path, c: dict, folder: Path, fcfg) -> list:
 
 # The names of failing tests, as pytest, unittest, go test, cargo test, jest, dotnet test, Maven and Gradle print them.
 FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) \S+::(?:\S+::)*([\w\[\]-]+)|^(?:FAIL|ERROR): (\w+) \(|--- FAIL: (\S+)|"
-                         r"^test (\S+) \.\.\. FAILED|✕ (.+?)(?: \(\d+ ?ms\))?$|^\s*Failed (\S+) \[|"
+                         r"^test (\S+) \.\.\. FAILED|^\s*✕ (.+?)(?: \(\d+ ?ms\))?$|^\s*Failed (\S+) \[|"
                          r"^\[ERROR\] (?:[\w$]+\.)*?([\w$]+\.[\w$]+|[\w$]+)(?:\([\w.$]*\))?\s+(?:-- )?Time elapsed:.*<<< (?:FAILURE|ERROR)!|"
                          r"^(?:[\w$]+\.)*([\w$]+ > .+?) FAILED$", re.M)
 
@@ -1298,8 +1486,7 @@ def caught_by(out: str) -> str:
 
 
 def took(run: dict) -> str:
-    secs = round(run.get("secs") or 0)
-    return f"{secs // 60}m {secs % 60}s" if secs >= 60 else f"{secs}s"
+    return spelled(run.get("secs") or 0)
 
 
 def hang_note(undone: dict, now: dict) -> str:
@@ -1343,8 +1530,38 @@ def change_diff(root: Path, c: dict, context: int = 3) -> bytes:
                     raw=True)
 
 
+def rewritten_by(root: Path, c: dict, free: list) -> str:
+    """For a change no test noticed: the later commit, checked in this same run with ✅, that rewrote the same code,
+    so this change no longer comes back out of today's code (h2 #1329: e1f7c12c was flagged, but a6ed24e later in
+    the same pull request rewrote that code, and a test notices the rewrite). "" when there's none: then the gap
+    stands. A later commit Bite didn't check, or didn't find noticed, never hides it."""
+    later = [x for x in free if x is not c and str(x.get("undo", "")).startswith(("guarded", "closed since"))
+             and set(x.get("code") or []) & set(c.get("code") or [])
+             and subprocess.run(["git", "merge-base", "--is-ancestor", c["sha"], x["sha"]], cwd=root,
+                                capture_output=True).returncode == 0]
+    if not later:
+        return ""
+    diff = change_diff(root, c, 0)
+    if not diff:
+        return ""
+    with tempfile.TemporaryDirectory(prefix="bite_rewritten_") as d:  # a scratch index: the checkout isn't touched
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(d) / "index")}
+        run = lambda *a: subprocess.run(["git", *a], cwd=root, env=env, input=diff, capture_output=True).returncode  # noqa: E731
+        if run("read-tree", "HEAD") or not run("apply", "--cached", "--check", "--unidiff-zero", "-R", "-"):
+            return ""  # the change still comes back out of today's code: it wasn't rewritten
+    return later[0]["sha"]
+
+
 def git_apply_ok(folder: Path, diff: bytes, *flags: str) -> bool:
-    return subprocess.run(["git", "apply", *flags, "-"], cwd=folder, input=diff, capture_output=True).returncode == 0
+    """git apply on one of Bite's copies. A copy can sit inside the project's own git folder (npm projects: in
+    node_modules/bite_tmp, so Node finds the packages). There, git apply read the patch's paths from the outer
+    project's top, matched nothing, changed nothing, and still said it worked (the dotenv hunt: every "its test is
+    gone" ran today's code unchanged). GIT_CEILING_DIRECTORIES stops git from looking above the copy."""
+    env = {**os.environ, "GIT_CEILING_DIRECTORIES": str(Path(folder).resolve().parent)}
+    env.pop("GIT_DIR", None)
+    env.pop("GIT_WORK_TREE", None)
+    return subprocess.run(["git", "apply", *flags, "-"], cwd=folder, input=diff, capture_output=True,
+                          env=env).returncode == 0
 
 
 def today_notices(root: Path, c: dict, cfg):
@@ -1468,6 +1685,7 @@ def worker(cfg, folder: Path, c: dict, diff: str, budget: float) -> dict:
                               can_use_tool=bite.make_permission(wcfg, log=lambda *a: None), permission_mode="default",
                               setting_sources=[], env={"ANTHROPIC_API_KEY": bite.load_key()})
     prompt = f"Commit message:\n{c['subject']}\n\n{c['body']}\n\nThe code change in it:\n{diff}"
+    import asyncio  # here, not at the top: only the paid step needs it, and it's 2/3 of Bite's start-up
     text, _ = asyncio.run(_agent(opts, prompt))
     return last_json(text)
 
@@ -1483,8 +1701,182 @@ def judge(cfg, c: dict, diff: str, test: str, fail: str) -> dict:
                               env={"ANTHROPIC_API_KEY": bite.load_key()},
                               system_prompt="You check another checker's work. Default to NOT when unsure.")
     msg = f"{c['subject']}\n\n{c['body']}"[:3000]
+    import asyncio  # here, not at the top: only the paid step needs it, and it's 2/3 of Bite's start-up
     text, _ = asyncio.run(_agent(opts, JUDGE_PROMPT.format(msg=msg, diff=diff[:8000], test=test[:4000], fail=fail[:3000])))
     return last_json(text)
+
+
+FAILED_ID = re.compile(r"^(?:FAILED|ERROR) (\S+::[^\s\"]+)", re.M)  # pytest's summary: FAILED tests/t.py::test_x - ...
+GO_FAILED = re.compile(r"^\s*--- FAIL: ([A-Za-z_]\w*)", re.M)  # go test: --- FAIL: TestTotal (0.00s), subtests TestX/case
+CARGO_FAILED = re.compile(r"^test (\S+) \.\.\. FAILED$", re.M)  # cargo test: test tests::rounds ... FAILED
+DOTNET_FAILED = re.compile(r"^\s*Failed (\S+) \[", re.M)  # dotnet test: "  Failed Shop.Tests.Rounds [12 ms]"
+ONE_COMMAND = re.compile(r"[;&|<>`]|\$\(")  # a test command that is more than one command: Bite can't tell where to add names
+
+
+def only_these(cmd: str, out: str, folder: Path) -> str:
+    """The test command changed to run only the tests that failed in out, or "" when that can't be told safely.
+    pytest: the failed test ids. go test: -run with the failed tests' names (a subtest's parent test reruns it).
+    cargo test: those names with --exact. dotnet test: a --filter of their full names. Others (npm test, Maven,
+    Gradle) print failures too many ways to pick them out safely, so the whole suite answers there."""
+    def names(pattern, ok=r"[\w:.]+"):
+        found = list(dict.fromkeys(pattern.findall(out)))
+        return found if found and len(found) <= 40 and all(re.fullmatch(ok, n) for n in found) else []
+    if "pytest" in cmd:
+        ids = names(FAILED_ID, r"\S+")
+        return pytest_one_file(cmd, " ".join(f'"{i}"' for i in ids), folder) if ids else ""
+    if ONE_COMMAND.search(cmd):
+        return ""
+    if re.match(r"\s*go\s+test\b", cmd):
+        ids = names(GO_FAILED, r"\w+")
+        cmd = re.sub(r"\s-run(?:=|\s+)(\"[^\"]*\"|'[^']*'|\S+)", "", cmd)
+        return cmd.replace("go test", f'go test -run "^({"|".join(ids)})$"', 1) if ids else ""
+    if re.match(r"\s*cargo\s+test\b", cmd):
+        ids = names(CARGO_FAILED)
+        if not ids or re.search(r"\s--(?:exact|skip)\b", cmd):
+            return ""
+        sep = "" if re.search(r"(?:^|\s)--(?:\s|$)", cmd) else " --"  # names go to the test binary, after --
+        return f"{cmd}{sep} --exact {' '.join(ids)}"
+    if re.match(r"\s*dotnet(?:\.exe)?\s+test\b", cmd):
+        ids = names(DOTNET_FAILED, r"[\w.]+")
+        cmd = re.sub(r'\s--filter(\s+|=)("[^"]*"|\S+)', "", cmd)
+        return f'{cmd} --filter "{"|".join("FullyQualifiedName=" + i for i in ids)}"' if ids else ""
+    return ""
+
+
+def failed_only(fcfg, folder: Path, out: str):
+    """A copy of fcfg whose test command runs only the tests that failed in out, or None when that can't be told
+    (a runner only_these doesn't know, tests in a box, no test named, a file that failed to load, or too many to
+    list). Rerunning only those tests answers "do they fail again?" in seconds instead of a whole suite's run."""
+    cmd = bite.tests_cmd(fcfg)
+    if fcfg.contain or bite.load_failure(out):
+        return None
+    fast = only_these(cmd, out, Path(folder))
+    if not fast:
+        return None
+    sub = at(fcfg, folder)
+    sub.test_cmd = one_process(fast)
+    sub.box_test_cmd = ""
+    return sub
+
+
+XDIST = re.compile(r"\s(?:-n|--numprocesses)(?:=|\s+)?(?!-)\S+|\s--dist(?:=|\s+)\S+")
+
+
+def one_process(cmd: str) -> str:
+    """A pytest command for a few tests, without pytest-xdist's -n (and the --dist that goes with it): starting
+    its workers took longer than the few tests themselves. They run the same in one process."""
+    if "pytest" not in cmd or not re.search(r"\s(?:-n|--numprocesses)", cmd):
+        return cmd
+    return XDIST.sub("", cmd)
+
+
+PYTEST_FILE = re.compile(r"(?:test_[^/]*|[^/]*_test)\.py$")
+
+
+# Skipped tests, by name: node --test ("﹣ name (0.6ms) # SKIP"), TAP ("ok 3 - name # SKIP"), go test -v
+# ("--- SKIP: TestX"), cargo test ("test name ... ignored"), pytest -rs ("SKIPPED [1] t.py::test_x" / "t.py::test_x SKIPPED").
+SKIPPED_TEST = re.compile(r"^\s*\S (.+?) \([\d.]+m?s\) # SKIP\b|^\s*ok \d+ - (.+?) # SKIP\b|--- SKIP: (\S+)|"
+                          r"^test (?:\S+::)?(\S+) \.\.\. ignored|::(\w+)(?:\[[^\]]*\])? SKIPPED", re.M)
+
+
+def own_test_skipped(root: Path, c: dict, out: str) -> str:
+    """The name of a test this commit added that was skipped in this run, or "". A test the commit wrote for its
+    fix may only run on another system (marked: { skip: process.platform === 'win32' }): skipped, it can't notice
+    the change, so "its tests didn't notice" would be wrong here."""
+    names = list(dict.fromkeys(next(g for g in m.groups() if g).strip() for m in SKIPPED_TEST.finditer(out)))
+    if not names:
+        return ""
+    diff = repo.git(root, "show", "--format=", "--no-color", c["sha"], "--", *c["test_code"]) or ""
+    added = "\n".join(ln[1:] for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++"))
+    own = next((n for n in names if len(n) > 3 and n in added), "")
+    return own or next((n for n in names if len(n) > 3 and added_inside(root, c, n)), "")
+
+
+def added_inside(root: Path, c: dict, name: str) -> bool:
+    """Whether this commit added lines inside the skipped test called name, in one of its test files: a subtest
+    inside a skipped parent never runs, and tap names only the parent (dotenv 7c675904 added a subtest inside
+    t.test('POSIX signal forwarding', { skip: process.platform === 'win32' }))."""
+    sibling = re.compile(r"^\s*(?:\w+\.)*(?:test|it|describe|suite)\s*\(")
+    for f in c["test_code"]:
+        lines = (repo.git(root, "show", f"{c['sha']}:{f}") or "").splitlines()
+        diff = repo.git(root, "show", "--format=", "--no-color", "-U0", c["sha"], "--", f) or ""
+        new = {int(m.group(1)) + k for m in re.finditer(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", diff, re.M)
+               for k in range(int(m.group(2) or 1))}
+        for i, ln in enumerate(lines):
+            if not sibling.match(ln) or not re.search(rf"""['"`]{re.escape(name)}['"`]""", ln):
+                continue
+            depth = len(ln) - len(ln.lstrip())
+            end = next((j for j in range(i + 1, len(lines)) if sibling.match(lines[j])
+                        and len(lines[j]) - len(lines[j].lstrip()) <= depth), len(lines))
+            if any(i + 1 < n <= end for n in new):  # git counts lines from 1
+                return True
+    return False
+
+
+def own_tests(fcfg, folder: Path, c: dict):
+    """A copy of fcfg whose test command runs only the pytest files this commit added or changed, or None when
+    that isn't safe to tell: not pytest, tests in a box, no such file, or a file the project's own command might
+    not run (it names folders, or the settings set testpaths, and the file isn't in them)."""
+    cmd = bite.tests_cmd(fcfg)
+    if "pytest" not in cmd or fcfg.contain:
+        return None
+    files = [t for t in c.get("test_code") or [] if PYTEST_FILE.search(t) and (Path(folder) / t).is_file()]
+    if not files or len(files) > 20:
+        return None
+    roots = [t.strip("\"'").rstrip("/") for t in cmd.split()[1:] if not t.startswith("-")
+             and (Path(folder) / t.strip("\"'")).is_dir() and t.strip("\"'") not in (".", "./")]
+    if not roots:  # no folder named: pytest runs its settings' testpaths, or everything
+        for n in ("pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg"):
+            text = (Path(folder) / n).read_text(encoding="utf-8", errors="replace") if (Path(folder) / n).is_file() else ""
+            m = re.search(r"(?m)^\s*testpaths\s*=\s*(\[[^\]]*\]|.*)$", text)
+            if m:
+                roots = [r.strip("/") for r in re.split(r"[\s,]+", re.sub(r"[\[\]\"']", " ", m.group(1))) if r]
+                if not roots or any(ch in "".join(roots) for ch in "*?{$"):
+                    return None  # a pattern or a variable: not something to match a file against
+                break
+    if roots and not all(any(f == r or f.startswith(r + "/") for r in roots) for f in files):
+        return None
+    sub = at(fcfg, folder)
+    sub.test_cmd = one_process(pytest_one_file(cmd, " ".join(f'"{f}"' for f in files), Path(folder)))
+    sub.box_test_cmd = ""
+    return sub
+
+
+def own_tests_notice(root: Path, c: dict, folder: Path, fcfg) -> tuple:
+    """With the change taken out, run only the tests this commit added or changed. When some fail, fail again,
+    and pass with the change back in (failed_again), the change is noticed: returns (that run, the command that
+    runs just the tests that noticed), and the whole suite needn't run again with the change out. Otherwise
+    (None, None): the whole suite answers, as before. The folder is left with the change out."""
+    own = own_tests(fcfg, folder, c)
+    if own is None:
+        return None, None
+    doing(c, "running the tests this commit added or changed, with the change taken out...")
+    first = run_tests(own, folder, confirm=False)
+    if first["ok"] or first.get("hung") or bite.load_failure(first["out"]):
+        return None, None
+    doing(c, "good sign, a test noticed the change was gone: running them once more to make sure it wasn't luck...")
+    fast = failed_again(root, c, folder, fcfg, first["out"], alone=bool(first.get("shared")))
+    return ({**first, "shared": False}, fast) if fast else (None, None)
+
+
+def failed_again(root: Path, c: dict, folder: Path, fcfg, out: str, alone: bool = False):
+    """The luck check, fast: with the change still out, run only the pytest tests that failed in out. If they fail
+    again, run them once more with the change back in, where they must pass: a test that fails when run on its
+    own (it needs another test to set something up first) would otherwise look like it noticed the change.
+    Returns the test command that runs just those tests when both hold (the piece check uses it too), or None
+    when the whole suite has to answer. The folder is left with the change out, as it was."""
+    sub = failed_only(fcfg, folder, out)
+    if sub is None:
+        return None
+    if run_tests(sub, folder, alone=alone)["ok"]:
+        return None  # they passed this time: only the whole suite can tell luck from tests that clash
+    for rel in c["code"]:  # the change back in
+        b = repo.git(root, "cat-file", "blob", f"{c['sha']}:{rel}", raw=True)
+        if b is not None:
+            bite.safe_write(folder, folder / rel, b)
+    base = run_tests(sub, folder, alone=alone)
+    take_out(root, c, folder)
+    return sub if base["ok"] and not ran_nothing(bite.tests_cmd(sub), base["out"]) else None
 
 
 def pytest_one_file(cmd: str, rel: str, project: Path) -> str:
@@ -1673,6 +2065,7 @@ def guard_judge(cfg, c: dict, diff: str, test: str, fail: str) -> dict:
                               env={"ANTHROPIC_API_KEY": bite.load_key()},
                               system_prompt="You check another checker's work. Default to NOT when unsure.")
     msg = f"{c['subject']}\n\n{c['body']}"[:3000]
+    import asyncio  # here, not at the top: only the paid step needs it, and it's 2/3 of Bite's start-up
     text, _ = asyncio.run(_agent(opts, GUARD_JUDGE_PROMPT.format(msg=msg, diff=diff[:8000], test=test[:4000], fail=fail[:3000])))
     return last_json(text)
 
@@ -1686,6 +2079,7 @@ def guard_worker(cfg, folder: Path, c: dict, diff: str, budget: float) -> dict:
     prompt = f"Commit message:\n{c['subject']}\n\n{c['body']}\n\nThe code change in it:\n{diff}"
     if c.get("part"):
         prompt += f"\n\nThe project's tests already notice the rest of this change. The part no test notices: {c['part']}. Test that part."
+    import asyncio  # here, not at the top: only the paid step needs it, and it's 2/3 of Bite's start-up
     text, _ = asyncio.run(_agent(opts, prompt))
     return last_json(text)
 
@@ -1706,11 +2100,15 @@ class heartbeat:
         def beat():
             while not self.stop.wait(self.every):
                 step(f"... still working ({round((time.time() - t0) / 60)} min, ${SPENT[0]:.2f} so far)")
-        threading.Thread(target=beat, daemon=True).start()
+        self.thread = threading.Thread(target=beat, daemon=True)
+        self.thread.start()
         return self
 
     def __exit__(self, *exc):
         self.stop.set()
+        # Wait for a line already on its way: printed after the step ended, it reads as if the step still runs
+        # (and on a slow Windows CI machine it landed in the next step's output).
+        self.thread.join(timeout=5)
 
 
 def try_guard(root: Path, c: dict, cfg, budget: float) -> dict:
@@ -1741,7 +2139,7 @@ def try_guard(root: Path, c: dict, cfg, budget: float) -> dict:
         if rc not in cfg.ok_codes or ran_nothing(cmd, out):
             res["status"] = "its test failed with the change in"
             return res
-    step("Running it with the change taken out (it must fail) ...")
+    step("Running it with the change taken out (this time it should fail: that shows it catches the bug) ...")
     f = export(root, c["sha"], cfg)
     try:
         take_out(root, c, f)
@@ -1754,7 +2152,7 @@ def try_guard(root: Path, c: dict, cfg, budget: float) -> dict:
         res["status"] = "its test couldn't load without the change"
     else:
         fail = repo.failure_excerpt(out, 15)
-        step("It failed without the change. A second, fresh check is reading it to see if it's fair ...")
+        step("Good: it failed without the change, so it catches the bug. A second, fresh check is reading it to see if it's fair ...")
         v = guard_judge(cfg, c, diff, res["test"], fail)
         res["judge"] = v
         if (v.get("verdict") or "").upper() == "FAIR":
@@ -1792,11 +2190,14 @@ def say(c: dict, newest: str = "") -> tuple[str, str, str]:
     failing on an older commit are skipped, since they often get fixed later."""
     u, caught = c.get("undo", ""), c.get("caught", "")
     one = caught and " more" not in caught
-    if u in ("undone since", "reverted since"):
+    if u in ("undone since", "reverted since", "replaced since"):
         import html
         by = c.get("undone_by") or {}
         who = (f"commit `{by['sha'][:8]}` (“{html.escape(by['subject'], quote=False).replace('`', chr(39))}”)"
                if by else "a later commit")
+        if u == "replaced since":
+            return ("skip", "➖ replaced by a later fix", f"➖ {who[0].upper() + who[1:]} put the old code back, took "
+                    "out this fix's tests and fixed it another way with tests of its own, so Bite didn't check it.")
         if u == "reverted since":
             return "skip", "➖ reverted on purpose", f"➖ {who[0].upper() + who[1:]} reverted it on purpose, so Bite didn't check it."
         return ("back", "🔁 UNDONE BY A LATER COMMIT", f"🔁 {'This fix slipped out the back door: ' if ROAST[0] else ''}"
@@ -1839,7 +2240,7 @@ def say(c: dict, newest: str = "") -> tuple[str, str, str]:
         if c.get("head") and c.get("head_ok"):
             return ("skip", "➖ tests failed here, fixed later", "➖ Your tests failed at this commit and pass on the "
                     f"newest one (`{c['head'][:8]}`), so Bite skipped it.")
-        if newest and c["sha"] != newest:
+        if newest and c["sha"] != newest and not c.get("head"):
             return ("skip", "➖ tests failed here, skipped", "➖ Your tests failed at this commit, so Bite skipped it "
                     "(a later commit may have fixed them).")
         return ("fail", "❌ tests already fail", "❌ Your tests fail at this commit before Bite takes anything out, so "
@@ -2098,7 +2499,7 @@ color:var(--bg);background:var(--gap);border-radius:4px;padding:2px 7px;margin-b
 {f'<h2>Claims tested</h2><table>{claims}</table>' if tried else ""}
 <h2>If this change disappeared, would any test notice?</h2>
 {f'<table>{rows}</table>' if rows else '<p class="sub">No commits were checked.</p>'}
-<footer>"Held" means a test fails when the change is taken out. It doesn't prove the commit has no other bugs.
+<footer>✅ means a test failed when Bite took the change out. That's the good result: the test caught it, so it will warn you if the change ever breaks. It doesn't prove the commit has no other bugs.
 Details and rerun commands are in the other files in this folder. Made by <a href="https://github.com/connabyss/bite">Bite</a>.</footer>
 </main>
 """
@@ -2516,12 +2917,32 @@ def demo(argv: list) -> int:
         rc = main(["--free", *(a for a in argv if a not in ("--demo", "--free", "comeback"))])
     finally:
         os.chdir(here)
-    print("\nThat was the demo; nothing of yours was touched. To check your own project: go into it and run bite --free")
+    print("\nThat was the demo; nothing of yours was touched.\n"
+          f"To check your own project: type  {how_called()} --free  and a space, drag your project's folder into this\n"
+          "window (that types its path for you), then press Enter.")
     return rc
 
 
+def how_called() -> str:
+    """The command this run was started with, as a person would type it again: bite, bite-check, pipx run bite-check,
+    uvx bite-check, python -m bite_check or python recent.py."""
+    exe, name = sys.executable.replace("\\", "/").lower(), Path(sys.argv[0] if sys.argv else "bite").name.lower()
+    if name in ("bite_check.py", "__main__.py"):
+        return "python -m bite_check"
+    if name.endswith(".py"):
+        return f"python {name}"
+    if "/pipx/" in exe and "/.cache/" in exe:  # pipx run keeps its throwaway environments in pipx's .cache
+        return "pipx run bite-check"
+    if "/uv/" in exe and ("/archive-v" in exe or "/cache/" in exe):  # uvx: uv's cache
+        return "uvx bite-check"
+    return "bite-check" if name.startswith("bite-check") else "bite"
+
+
 # Every option main() accepts; each one must be in the help text above (the self-test checks).
-FLAGS = {"--free", "--all", "--any", "--serious", "--again", "--roast", "--demo", "--write-tests", "--json", "--quick"}
+JSON_RUN = [False]  # set while --json runs, so a run outside a repo answers with JSON instead of the demo
+FLAGS = {"--keep-output", "--verbose", "--free", "--all", "--any", "--serious", "--again", "--roast", "--demo", "--write-tests", "--json", "--quick"}
+# 0 here checks nothing and still ends like a clean run (git log -n0 can never find a commit)
+AT_LEAST_ONE = {"--last", "--free-checks"}
 VALUED = {"--last": int, "--free-checks": int, "--suspects": int, "--budget": float, "--since": str, "--part-runs": int,
           "--shard": str, "--only": str, "--jobs": int}
 VALUE_EXAMPLE = {"--budget": "1.00", "--since": "main", "--part-runs": 6, "--shard": "2/5", "--only": "1a2b3c4d", "--jobs": 4}
@@ -2576,15 +2997,67 @@ def _newer(latest, current):
         return False
 
 
+def leave_own_python() -> None:
+    """Run the project's tests with the project's Python, not Bite's own. A tool runner like uvx
+    (`uvx --from bite-check bite --free`) puts Bite's private environment first on PATH, so "python3 -m pytest"
+    found a Python with no pytest and none of the project's packages. Drop that folder from PATH unless it's an
+    environment the user turned on (VIRTUAL_ENV) or one inside the project (uv run, poetry, .venv)."""
+    if sys.prefix == sys.base_prefix:
+        return  # Bite runs in a plain Python: nothing of its own to step around
+    own = Path(sys.prefix, "Scripts" if bite.WINDOWS else "bin")
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    same = lambda a, b: os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+    if not parts or not parts[0] or not same(parts[0], own):
+        return  # pipx, pip install and the plugin leave PATH alone: their Python is found the usual way
+    if os.environ.get("VIRTUAL_ENV") and same(os.environ["VIRTUAL_ENV"], sys.prefix):
+        return
+    try:
+        Path.cwd().resolve().relative_to(Path(sys.prefix).resolve().parent)
+        return  # the project's own .venv, with Bite installed in it
+    except ValueError:
+        pass
+    os.environ["PATH"] = os.pathsep.join(p for p in parts if not (p and same(p, own)))
+
+
+def utf8_output() -> None:
+    """Output sent to a file (`bite --free > run.log`) in UTF-8. On Windows it was written in the system's code page
+    (cp1252), where ✅ and ⚠️ came out as "?" and a cut-off subject's "…" as a stray byte (marked's run.log). A
+    terminal keeps its own encoding (Python writes Windows consoles in Unicode), and so does a pipe: the program
+    reading it decodes with the system's code page, and UTF-8 there broke it."""
+    import stat
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stat.S_ISREG(os.fstat(stream.fileno()).st_mode) and \
+                    (stream.encoding or "").lower().replace("-", "") != "utf8":
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
+            pass  # not a real stream (a test's capture): leave it
+
+
+NO_TEST_COMMAND = (
+    "It looks for pytest, npm test, cargo test, go test, dotnet test, Maven and Gradle.\n\n"
+    "Tell Bite how to run yours in .bite.ini, next to your code:\n\n"
+    "    [bite]\n"
+    "    test_command = python -m pytest"
+)
+
+
 def main(argv=None):
+    if argv is None:  # run from the command line (a test calling main() keeps its own PATH)
+        leave_own_python()
+        utf8_output()
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--json" in argv and argv[:1] not in (["live"], ["ask"], ["mcp"]) and not {"-h", "--help", "--version"} & set(argv):
         # Only the results go to stdout, so a program can read them; what Bite says along the way goes to stderr.
         import contextlib
         out, argv = sys.stdout, [a for a in argv if a != "--json"]
         LAST_RESULTS[0] = None
-        with contextlib.redirect_stdout(sys.stderr):
-            rc = main(argv)
+        JSON_RUN[0] = True
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                rc = main(argv)
+        finally:
+            JSON_RUN[0] = False
         if LAST_RESULTS[0]:
             out.write(LAST_RESULTS[0].read_text(encoding="utf-8"))
         else:
@@ -2612,7 +3085,7 @@ def main(argv=None):
     if "-h" in argv or "--help" in argv:
         print(__doc__.strip())
         return 0
-    i = 0
+    i, folder = 0, None
     while i < len(argv):  # a typo must not fall through to the paid step
         if argv[i] in VALUED and i + 1 >= len(argv):
             print(f"Bite: {argv[i]} needs a value after it, like {argv[i]} {VALUE_EXAMPLE.get(argv[i], 10)}.")
@@ -2620,23 +3093,38 @@ def main(argv=None):
         if argv[i] in VALUED:
             kind = VALUED[argv[i]]
             need = "a whole number" if kind is int else "a number"
+            least = 1 if argv[i] in AT_LEAST_ONE else 0
             try:
-                below = kind is not str and kind(argv[i + 1]) < 0  # git log -n-5 would read the whole history
+                below = kind is not str and kind(argv[i + 1]) < least
             except ValueError:
                 print(f"Bite: {argv[i]} needs {need}, got {argv[i + 1]!r}.")
                 return 2
             if below:
-                print(f"Bite: {argv[i]} needs {need} of 0 or more, got {argv[i + 1]!r}.")
+                print(f"Bite: {argv[i]} needs {need} of {least} or more, got {argv[i + 1]!r}.")
                 return 2
             i += 2
         elif argv[i] in FLAGS or (argv[i] == "comeback" and i and argv[i - 1] == "--demo"):
             i += 1
+        elif folder is None and not argv[i].startswith("-") and Path(argv[i].strip("\"'")).is_dir():
+            # The project's folder, so nobody has to cd first: dragging a folder into the window types its path.
+            folder = argv.pop(i).strip("\"'")
+        elif i and argv[i - 1] == "--demo" and not argv[i].startswith("-"):
+            print(f"Bite: there's no demo called {argv[i]!r}. Try bite --demo, or bite --demo comeback.")
+            return 2
         else:
-            print(f"Bite: unknown option {argv[i]!r}. Run bite --help for the options.")
+            raw = argv[i].strip("\"'")
+            if folder is None and not argv[i].startswith("-"):
+                print(f"Bite: there's no folder at {raw}. Check the path, or drag the folder into this window to type it.")
+                return 2
+            close = difflib.get_close_matches(argv[i], sorted(FLAGS | set(VALUED)), n=1)
+            hint = f" Did you mean {close[0]}?" if close else ""
+            print(f"Bite: unknown option {argv[i]!r}.{hint} Run bite --help for the options.")
             return 2
     opt = lambda k, d: type(d)(argv[argv.index(k) + 1]) if k in argv else d  # noqa: E731
     ROAST[0] = "--roast" in argv
     QUICK[0] = "--quick" in argv
+    VERBOSE[0] = "--verbose" in argv
+    KEEP[0] = "--keep-output" in argv
     PART_RUNS[0] = opt("--part-runs", 6)
     JOBS[0] = max(1, opt("--jobs", 1))
     shard = re.fullmatch(r"(\d+)/(\d+)", opt("--shard", "1/1"))
@@ -2650,10 +3138,20 @@ def main(argv=None):
         return 1
     if "--demo" in argv:
         return demo(argv)
-    root = repo.repo_root(os.getcwd())
+    root = repo.repo_root(folder or os.getcwd())
     if root is None:
-        print("Bite: not inside a git repository.")
-        return 1
+        if folder:
+            print(f"Bite: {folder} isn't a project with git history (not inside a git repository), so there's\n"
+                  "nothing to check there. Pick the folder you cloned or made with git, the one with your code in it.")
+            return 1
+        if JSON_RUN[0]:
+            print("Bite: not inside a git repository.")
+            return 1
+        # A first run from wherever the terminal opened (C:\WINDOWS\system32, the home folder): show what Bite
+        # does on a made-up project instead of stopping, and say how to point it at a real one.
+        print(f"Bite: this folder ({os.getcwd()}) isn't a project with git history (not inside a git repository),\n"
+              "so here's Bite's demo on a tiny made-up project instead.\n", flush=True)
+        return demo(["--demo"])
     try:
         cfg = repo.load_cfg(root)
     except repo.ConfigError as e:
@@ -2662,8 +3160,8 @@ def main(argv=None):
         return 1
     covers = extras(root, cfg)
     if not cfg.test_cmd:
-        print("Bite: no test command found; set test_command in .bite.ini")
-        write_comment(root, [], error="Bite found no test command. Set test_command in .bite.ini.")
+        print(f"Bite: no test command found. {NO_TEST_COMMAND}")
+        write_comment(root, [], error=f"Bite found no test command. {NO_TEST_COMMAND}")
         return 1
     if not cfg.programs:  # the worker may run the test runner and the project's language, nothing new
         first = cfg.test_cmd.split()[0]
@@ -2681,13 +3179,16 @@ def main(argv=None):
         return 1
     t0 = time.time()
     cs = commits(root, opt("--last", 40), since)  # --all is still accepted: every commit is the default now
+    seen = len(cs)
     top = cs[0]["sha"] if cs else ""  # the newest commit of all, even one that changed no code
+    if only:  # the commits named, wherever they are in the history
+        cs = commits(root, 0, named=only) or cs
     for c in cs:
         files_of(root, c, cfg)
     other = [c for c in cs if c["other_lang"] and not c["code"]]
     cs = [c for c in cs if c["code"]]
     newest = cs[0]["sha"] if cs else ""  # git log lists the newest first
-    print(f"Bite: {len(cs)} commits changed code in the last {opt('--last', 40)}.", flush=True)
+    print(f"Bite: {plural(len(cs), 'commit')} changed code in the last {opt('--last', 40)}.", flush=True)
     lang = repo.runs_language(cfg.test_cmd)[0]
     if cs and repo.shallow(root):
         print(f"  {repo.SHALLOW}", flush=True)
@@ -2696,7 +3197,11 @@ def main(argv=None):
               + ", ".join(c["sha"][:8] for c in other), flush=True)
     if not cs:
         thin = repo.shallow(root)  # --last can't help: the history isn't there
-        print(f"Nothing to check. {repo.SHALLOW}" if thin else "Nothing to check. Try a larger --last.")
+        whole = not since and seen < int(opt("--last", 40))  # git had fewer commits than asked for
+        print(f"Nothing to check. {repo.SHALLOW}" if thin else
+              f"Nothing to check: that was every commit in this repository ({seen}), and none changed code your "
+              f"tests run ({lang}). Make a change with a test, commit it, and run Bite again." if whole else
+              "Nothing to check. Try a larger --last.")
         write_comment(root, [], none=f"The code changed here isn't {lang}, and your tests only run {lang}, so they "
                                      "can't notice it." if other else repo.SHALLOW if thin else "")
         return 0
@@ -2726,7 +3231,8 @@ def main(argv=None):
         cs = [c for c in cs if c["test_code"]]
         print(f"No fix claims found in the last {opt('--last', 40)} commits, so there's nothing to hold them to"
               + (f". Checking the {len(cs)} that added tests: do those tests check the change?" if cs else
-                 ". (--any checks them anyway.)"), flush=True)
+                 ", and none of them added tests. To check every change anyway, run:\n    "
+                 + " ".join(["bite", *argv, "--any"])), flush=True)
         if not cs:
             write_comment(root, [], none="No commit in this pull request says it fixes something, so there's no claim to check.")
             return 0
@@ -2751,19 +3257,21 @@ def main(argv=None):
         print(f"  --shard {part}/{parts}: this run checks {len(free)} of them", flush=True)
     print(f"  free check of {len(free)}: each runs the tests with and without the change", flush=True)
     memo = {} if "--again" in argv else remembered(root)
-    key = checked_key(root, cfg)
+    key, base = checked_key(root, cfg), checked_key(root, cfg, tests=False)
     todo = []
-    for c in free:  # a commit checked before with ✅, with the same tests and settings, isn't run again
+    for c in free:  # a commit checked before with ✅ isn't run again while the answer still holds
         old = memo.get(c["sha"])
-        if old and old.get("key") == key and not came_back(root, c):
+        if old and still_holds(root, c, old, key, base, cfg):
             c["undo"], c["caught"], c["remembered"] = old["undo"], old.get("caught", ""), True
         else:
             todo.append(c)
     if len(todo) < len(free):
-        print(f"  {len(free) - len(todo)} checked before with the same tests and settings: not run again "
+        print(f"  {plural(len(free) - len(todo), 'commit')} checked before with ✅, and nothing that answer depends on "
+              "changed: not run again "
               "(--again runs them anyway)", flush=True)
 
     def done(c):
+        PROGRESS["done"] += 1
         if c["undo"].startswith("unguarded"):
             c["score"] += 2
         elif c["undo"] == "TEST GUARDS NOTHING":
@@ -2772,30 +3280,78 @@ def main(argv=None):
         if c.get("why"):  # say what broke, so it's clear whether it's the project or the copy
             print(f"           why: {c['why']}", flush=True)
         if c["undo"].startswith("guarded") and not c.get("remembered"):
-            memo[c["sha"]] = {"key": key, "undo": c["undo"], "caught": c.get("caught", "")}
+            memo[c["sha"]] = {"key": key, "base": base, "today": bool(c.get("today")), "undo": c["undo"],
+                              "caught": c.get("caught", "")}
             remember(root, memo)
         save_log(root, kept, cs)
+    PROGRESS.update(start=time.monotonic(), done=0, total=len(free))
     for c in free:
         if c.get("remembered"):
             done(c)
     t_free = time.time()
+    red = {}  # set once the tests fail before Bite changes anything, on the first commits and on today's code
+
+    def already_red() -> bool:
+        """The first 2 commits checked both failed with nothing taken out: do the tests fail on the newest commit
+        too? Then every other commit would only say the same (validator.js: 40 checks of a suite whose test
+        command skipped a build step), so Bite stops and says so once."""
+        if "head" in red:
+            return red["head"] is not None
+        fails = [c for c in todo if c.get("undo") == "tests fail at this commit"]
+        if len(fails) < 2 or len([c for c in todo if c.get("undo")]) != len(fails):
+            return False
+        print("  the tests failed at the first 2 commits before Bite took anything out: running them on the newest "
+              "commit, with nothing changed...", flush=True)
+        ok, why = tests_pass_at(root, top or newest, cfg)
+        red["head"] = None if ok else why
+        return not ok
+
     if JOBS[0] > 1 and len(todo) > 1:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         print(f"  {min(JOBS[0], len(todo))} at a time (--jobs)", flush=True)
         with ThreadPoolExecutor(JOBS[0]) as pool:
             futs = {pool.submit(undo_check, root, c, cfg): c for c in todo}
             for f in as_completed(futs):
+                if f.cancelled():
+                    continue
                 futs[f]["undo"] = f.result()
                 done(futs[f])
+                if already_red():
+                    for g in futs:
+                        g.cancel()
     else:
         for c in todo:
             c["undo"] = undo_check(root, c, cfg)
             done(c)
+            if already_red():
+                break
+    for c in free:  # a gap whose code a later, noticed commit in this run rewrote: the rewrite is what counts now
+        if str(c.get("undo", "")).startswith("unguarded") or c.get("undo") == "TEST GUARDS NOTHING":
+            by = rewritten_by(root, c, free)
+            if by:
+                c["undo"] = f"not flagged: rewritten later by {by[:8]}, and a test notices that"
+                # Its line above said no test noticed: say what changed, so the list and the summary agree.
+                print(f"  {c['sha'][:8]} ➖ after all, not flagged: {by[:8]} later rewrote this code, and a test "
+                      "notices that", flush=True)
+    if red.get("head") is not None:
+        left = [c for c in todo if not c.get("undo")]
+        print(f"\nYour tests already fail before Bite changes anything, on the newest commit too ({red['head']}).\n"
+              f"Bite stopped here instead of checking the other {len(left)}: every check would fail the same way. Fix "
+              "the tests first. If they pass on your own computer, Bite may be running them differently: set "
+              f"test_command in .bite.ini ({SETUP_LINK}). Bite ran: {bite.tests_cmd(cfg)}", flush=True)
+        todo = [c for c in todo if c.get("undo")]
+        free = [c for c in free if c.get("undo")]
+        for c in free:  # shown as "tests already fail", not as skipped ones a later commit may have fixed
+            if c["undo"] == "tests fail at this commit":
+                c.update(head=top or newest, head_ok=False, head_why=red["head"])
+        if not getattr(cfg, "free_cmd", ""):  # claims run with test_command, which free_test_command may not be
+            free_only = True  # no claim can be tested on tests that already fail: nothing to spend on
+    PROGRESS["total"] = 0
     tip = slow_tip((time.time() - t_free) / len(todo), len(todo), cfg) if todo else ""
     if tip:
         print(f"  {tip}", flush=True)
     last = next((c for c in free if c["sha"] == newest and c["undo"] == "tests fail at this commit"), None)
-    if last and top and top != newest:  # later commits changed no code, but one may have fixed the tests
+    if last and top and top != newest and "head" not in last:  # later commits changed no code, but one may have fixed the tests
         last["head"] = top
         last["head_ok"], last["head_why"] = tests_pass_at(root, top, cfg)
         print(f"  the tests {'pass' if last['head_ok'] else 'fail too'} on the newest commit, {top[:8]}, which changed no code",
@@ -2865,7 +3421,9 @@ def main(argv=None):
         print(f"{say(c)[1]}: {c['sha'][:8]} \"{short(c['subject'])}\": {flat(say(c)[2])[2:].strip()}")
     checked = [c for c in cs if c.get("undo")]
     held = [c for c in checked if c["undo"].startswith(("guarded", "closed since"))]
-    print(f"\nChecked {len(checked)} commit(s): a test noticed {len(held)}, no test noticed {len(flagged)}, "
+    if held:  # a newcomer reads "failed" as bad: here it's the result you want
+        print("\n✅ means that with the change taken out, a test failed. That's the good result: your tests caught it.")
+    print(f"\nChecked {plural(len(checked), 'commit')}: a test noticed {len(held)}, no test noticed {len(flagged)}, "
           + (f"undone by a later commit {len(back)}, " if back else "")
           + f"{len(checked) - len(held) - len(flagged) - len(back)} couldn't be checked or skipped"
           + (f"; {n_out} outside the tests' reach" if n_out else "")
@@ -2888,7 +3446,7 @@ def main(argv=None):
               f"Badge for your README: {BADGE}")
     if flagged:
         print(f"Each change no test noticed, with a check you can rerun and a note for your coding AI: {write_free(root, cfg, flagged)}")
-    print(f"\n{time.time() - t0:.0f}s, ${SPENT[0]:.2f}")
+    print(f"\nTook {spelled(time.time() - t0)}, spent ${SPENT[0]:.2f}.")
     save_log(root, tried, cs)
     save_missing_tests(root, flagged)
     write_comment(root, cs, newest=newest, tried=tried)

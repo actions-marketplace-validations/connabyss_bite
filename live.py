@@ -141,7 +141,8 @@ def say(r: dict) -> str:
                 f"({r['hang']}).")
     if s == "guarded":
         who = f" ({r['caught']})" if r.get("caught") else ""
-        return f"Bite ✅ a test noticed: with the change to {files(r['code'])} taken out, the tests fail{who}."
+        return (f"Bite ✅ a test noticed, good news: with the change to {files(r['code'])} taken out, a test "
+                f"failed{who}. That failure is the good result: if this change ever breaks, that test will warn you.")
     if s == "tests_blind":
         return (f"Bite ⚠️ the tests that came with this change ({files(r['test_code'])}) don't notice it: with the "
                 f"change to {files(r['code'])} taken out, they still pass. The \"fixed\" isn't proven yet.")
@@ -245,8 +246,13 @@ def main(argv: list) -> int:
     if root is None:
         print("Bite: not inside a git repository.")
         return 1
-    base = argv[argv.index("--since") + 1] if "--since" in argv and argv.index("--since") + 1 < len(argv) else "HEAD"
+    has_since = "--since" in argv
+    base = argv[argv.index("--since") + 1] if has_since and argv.index("--since") + 1 < len(argv) else "HEAD"
     if repo.git(root, "rev-parse", "--verify", "-q", f"{base}^{{commit}}") is None:
+        if not has_since and repo.git(root, "rev-parse", "--verify", "-q", "HEAD") is None:
+            print("Bite: this repository has no commits yet, so there's nothing to compare your changes with. "
+                  "Make a first commit, then run bite live again.")
+            return 0
         print(f"Bite: --since {base} isn't a commit or branch in this repository.")
         return 1
     print("Bite: taking the changes since " + ("the last commit" if base == "HEAD" else base)

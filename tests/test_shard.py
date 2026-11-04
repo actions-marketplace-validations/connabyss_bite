@@ -53,6 +53,13 @@ def test_only_checks_just_the_commits_named(tmp_path):
     assert got == {shas[0][:8], shas[2][:8]}, out
 
 
+def test_only_finds_a_commit_older_than_the_last_ones_looked_at(tmp_path):
+    # The 11-03 hunt: --only 0864b3ce said "Nothing to check" because Bite only looked among the last 40 commits.
+    root, shas = make(tmp_path)
+    got, out = checked(root, "--last", "1", "--only", shas[0][:8])
+    assert got == {shas[0][:8]}, out
+
+
 def test_a_shard_that_isnt_one_of_the_parts_is_refused(tmp_path):
     root, _ = make(tmp_path)
     r = subprocess.run([PY, str(KIT / "recent.py"), "--free", "--shard", "3/2"], cwd=root, capture_output=True,

@@ -3,6 +3,123 @@
 What changed in each Bite release, newest first. Numbers link to the pull request on
 github.com/connabyss/bite. Install or update: `pipx install --force bite-check --pip-args="--no-cache-dir"`.
 
+## Unreleased
+
+- Bite starts faster: asyncio (2/3 of its start-up) loads only for the paid step. The quick reruns of a few tests
+  (the commit's own tests, the tests that failed) run in one process instead of starting pytest-xdist's workers
+  for them. Same tests, same results; about a second saved per commit, more on Windows.
+- Bite's own pull request check: a one-commit pull request is checked by the bite job alone, without a part
+  machine first (~20 sec of set-up).
+- Bite's own self-test (tests/selftest.py, 139 checks) runs in 10 parts side by side under pytest instead of one
+  50-second process; `python tests/selftest.py` still runs it all at once. CI prints the 20 slowest tests.
+- Bite's own pull request check gives each commit a machine of its own (up to 20) instead of 6 shared ones, so
+  it takes about as long as its slowest commit, however many commits the pull request has.
+- Bite's own pull request check splits the commits across 6 machines at once (`--shard`, like the weekly
+  self-check), then one last job gathers what they remembered and writes the comment. One machine couldn't go
+  faster: its 4 cores were already busy with the tests. A 17-commit pull request took about 30 minutes; split, it
+  takes about as long as 3 commits. The recipe is in .github/workflows/bite.yml for any project with a slow suite.
+- A new push to a pull request checks only its new commits. Bite remembered each commit it checked with ✅, but
+  forgot every one of them as soon as any test file changed, so a pull request whose every commit adds a test (as
+  it should) started over from zero on each push: 17 commits, about 30 minutes, every time. Bite checks each
+  change on a copy of its own commit, so a test added or changed later can't undo that ✅. Now only a test file
+  deleted since, a changed setting or a new library version asks again, plus any test change for a ✅ that
+  leaned on a later test.
+
+## 1.0.4 (2026-11-04)
+
+Thanks to [@hrithiksaini99](https://github.com/hrithiksaini99) for seven merged
+pull requests: "1 commit", not "1 commits" (#163); refuse `--last 0` (#164); "under 1 sec" instead of "0 sec" (#165);
+a missing folder is called a folder (#166); name the two demos on a wrong `--demo` name (#167); say what Bite
+looks for when no test command is found (#168); and a two-minute walkthrough on a toy repo (#169).
+
+- `--free-checks 0` is refused with a plain message. It used to check nothing and end as if all was well.
+- A test the commit added inside a parent test that is skipped on this system counts as skipped too, not as
+  "didn't notice". tap names only the skipped parent (dotenv 7c675904 on Windows).
+- A commit that changed only TypeScript declaration files (`.d.ts`) is listed as code the tests can't run, not
+  flagged: those files hold types only (dayjs).
+- `why:` lines no longer end in a literal `\r` or start with a `+` taken from tap's escaped diff dump of the error
+  (node-semver on Windows).
+- When a commit turns out "rewritten later", Bite prints a line saying it's not flagged after all, so the list matches
+  the summary.
+- `--only` finds the commits named wherever they are in the history. It used to look only among the last 40,
+  so an older commit got "Nothing to check".
+- JavaScript projects: Bite's copies now sit outside the project, with a link to its `node_modules`, instead of
+  inside `node_modules`. Tools that skip anything under `node_modules` (jest, `@babel/register`, tap) skipped the
+  copies too, so on validator.js every commit showed as "tests already fail" though its tests pass.
+- npm projects: checking a change on today's code (the "its test is gone" check) really takes the change out now.
+  Bite's copies sit inside the project's git folder there, and `git apply` changed nothing while saying it worked,
+  so every "its test is gone" on an npm project was false (found on dotenv).
+- `--keep-output` saves what the tests printed for each commit, with the change in and taken out, in
+  `bite_proof/output/<commit>.txt`, so you can see why Bite read a run the way it did (asked for while checking
+  eemeli/yaml).
+- A change no test noticed, whose code a later commit in the same run rewrote, is no longer flagged when a test
+  notices that rewrite ("rewritten later by <commit>"). A pull request's early drafts no longer look like gaps
+  (found on h2 #1329). If the rewrite isn't noticed either, the flag stays.
+- When your tests already fail before Bite changes anything, Bite now says so once and stops. If the first 2
+  commits it checks fail with nothing taken out, it runs the tests on the newest commit, and when they fail there
+  too it stops instead of running every other check the same way (on validator.js that was 40 checks, because
+  the test command skipped a build step), and names the test command it ran. When the newest commit's tests pass, it goes on as before.
+- A test the commit added that is skipped on this system (marked: `{ skip: process.platform === 'win32' }`) no
+  longer makes Bite say "its tests didn't notice". It says the test was skipped here, so it couldn't notice. Read
+  from node --test, TAP, go test -v, cargo test and pytest -rs output.
+- On Windows, output sent to a file (`bite --free > run.log`) is now UTF-8: the ✅ and ⚠️ marks came out as "?"
+  and a cut-off subject's "…" as a stray byte.
+- The comeback alarm no longer goes off for a replacement fix: when the later commit that put the old code back
+  also took out the fix's tests and added tests of its own (dayjs b575c81a fixed d0e6738a's bug in the timezone
+  plugin instead), Bite says "➖ replaced by a later fix", a note instead of "🔁 UNDONE BY A LATER COMMIT".
+- Git submodules are in Bite's copies now. git archive leaves them out, so a project whose tests read one (tomlkit's
+  toml-test cases) showed "tests already fail" on every commit. Each is filled from its checkout; Bite says once if
+  one isn't checked out (`git submodule update --init`).
+- When the tests fail with nothing taken out, Bite runs them once more before skipping that commit: a test that
+  fails now and then (h2's Hypothesis test, on a cold copy) skipped 2 commits whose tests pass.
+- README: a short "Bite does this, you decide that" box, and a link to the Fool Bite challenge (#156).
+- Faster when a commit brings its own test (pytest). With the change taken out, Bite runs that commit's own test
+  files first. When they notice (fail again, and pass with the change back in), the whole suite doesn't run a
+  second time. Otherwise the whole suite decides, as before. Bite's check of its own 3-commit pull request #155 went
+  from 15 min 41 sec to 5 min 56 sec on a 4-core machine, with the same results.
+- Bite's own pull request check no longer runs 2 commits at once (`--jobs 2`): on a 4-core machine whose tests
+  already run 4 at a time, that made every run wait on the other.
+- Faster for pytest projects. Once a test notices a change is gone, the luck check (run once more) and the piece
+  check (each piece of the change taken out alone) run only the tests that noticed, not the whole suite. A commit
+  with 2 pieces used to cost 5 whole-suite runs and now costs 2, plus a few runs of just those tests. Results stay
+  the same: those tests also run once with the change back in, where they must pass, and whenever they pass with a
+  piece out, the whole suite decides as before.
+- The same speed-up for Go, Rust and .NET (`go test`, `cargo test`, `dotnet test`): only the tests that noticed
+  rerun. npm test, Maven, Gradle and any test command of more than one step still run the whole suite, since
+  their failures can't be picked out safely.
+- Clearer results for newcomers: when a test fails with the change taken out, Bite now says that's the good result
+  (the test caught it), in the terminal, the report page, `bite live` and `bite mcp`.
+- Fool Bite: TRICKS.md invites you to sneak a "fix" past Bite, with an "I fooled Bite" issue form for entries.
+
+## 1.0.3 (2026-11-03)
+
+For someone who has only Python and has never used a terminal much. A walk-through on Windows found two dead ends:
+`uvx` and `pipx` aren't there on a fresh PC, and the terminal opens in C:\WINDOWS\system32, where Bite only said
+"not inside a git repository".
+- `python -m bite_check --free` runs Bite after a plain `python -m pip install bite-check`, even when pip's command
+  folder isn't on PATH. It ignores a project's own file named recent.py.
+- Run outside a project, Bite shows its demo on a made-up project instead of stopping, then says how to check your
+  own: type the same line and drag the project's folder into the window.
+- A folder after the options checks that project without `cd` first: `bite --free C:\code\my-app`. A folder that
+  has no git history gets a plain "nothing to check there". `--json` outside a project still answers with an error.
+- The log is calm by default: one line per finished check, and every 30 seconds one line like "still checking:
+  1 of 4 done, 2 min so far...". The line before every test run (change in, change out, the rerun, each piece) is
+  now behind `--verbose`, and there the rerun reads as the good news it is: "good sign, a test noticed the change was
+  gone: running them once more to make sure it wasn't luck".
+- Times in the log are in words: "they took 1 min 25 sec with it in" (was "1m 25s"), and the last line says
+  "Took 3 min 30 sec, spent $0.00." (was "210s, $0.00").
+
+## 1.0.2 (2026-11-03)
+
+For a newcomer's first run on their own repo. Each of these was a dead end in a walk-through on a small fresh repo:
+- `uvx bite-check --free` and `pipx run bite-check --free` now work: the package name is also a command.
+- Run through uvx, Bite ran the tests with uvx's private Python, which has no pytest and none of the project's
+  packages, and stopped with "pytest isn't installed". It now steps around its own Python and uses the project's.
+- When no commit says it fixed something and none added tests, Bite prints the command that checks them anyway
+  (`bite --free --any`) instead of a hint in brackets.
+- A small repo whose commits changed no code was told "Try a larger --last", though Bite had already seen every
+  commit. It now says so, and what to do next.
+
 ## 1.0.1 (2026-11-02)
 
 Fixed:

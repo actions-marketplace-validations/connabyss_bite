@@ -11,6 +11,22 @@ failed before its fix.
 "Fooled" means Bite gave the wrong answer: it said a test noticed when none really did, it skipped a real fix, or it
 flagged something that isn't a fix claim.
 
+## Your turn: fool Bite
+
+Can you sneak a "fix" past Bite? Make a tiny repo whose newest commit says it fixed something, and get Bite to
+answer wrong:
+
+- **Fool it one way:** no test really checks the fix, but Bite says ✅ a test noticed.
+- **Or the other way:** a test really does check the fix, but Bite says ⚠️ no test noticed.
+
+Run `bite --free` in your repo (no key, free). If Bite gets it wrong, open an issue with the
+[I fooled Bite](https://github.com/connabyss/bite/issues/new?template=fool-bite.md) form. The two tricks under
+"Still fools Bite" below are already known, so they don't count; a new twist on one does.
+
+Every trick that works goes in the tables below with your name, gets a test in
+[tests/test_tricks.py](tests/test_tricks.py), and gets fixed if it can be. Tricks Bite catches are welcome too:
+they go under "Not fooled".
+
 ## Fixed
 
 | Trick | Honest answer | Bite before | Bite now |

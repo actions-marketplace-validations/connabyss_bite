@@ -5,7 +5,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -98,13 +97,48 @@ def load_cfg(root: Path):
     for name in COPY_IGNORE:
         if name not in cfg.copy_ignore:
             cfg.copy_ignore.append(name)
-    if (root / "node_modules").is_dir():
-        # Node looks for node_modules in the folders above a file: a copy made inside node_modules/ finds the
-        # project's packages without copying them (node_modules itself is left out of every copy).
-        tmp = root / "node_modules" / "bite_tmp"
-        tmp.mkdir(exist_ok=True)
-        tempfile.tempdir = str(tmp)
+    # Copies of a JavaScript project used to be made inside its node_modules/, so Node found the packages above
+    # them. But tools that skip anything under node_modules (jest, @babel/register, tap) then skipped the copy too
+    # (validator.js: every commit "tests already fail"), and git apply in the copy saw the project's own git folder
+    # (dotenv). Now each copy sits outside the project, with a link to its node_modules: see link_node_modules.
     return cfg
+
+
+def link_node_modules(root: Path, dest: Path) -> int:
+    """Give a copy (dest) of the project the project's installed packages: a link at each node_modules the project
+    has (its top folder, or a workspace package's folder up to two deep) to the real one. Nothing is copied, and
+    the real folders are never written through by Bite (removing the copy removes only the link). Returns how many
+    links were made."""
+    made = 0
+    for pattern in ("node_modules", "*/node_modules", "*/*/node_modules"):
+        for src in sorted(root.glob(pattern)):
+            rel = src.relative_to(root)
+            if not src.is_dir() or src.is_symlink() or any(p in (".git", "node_modules") for p in rel.parts[:-1]):
+                continue
+            target = dest / rel
+            if not target.parent.is_dir() or os.path.lexists(target):
+                continue
+            if make_link(src.resolve(), target):
+                made += 1
+    return made
+
+
+def make_link(src: Path, target: Path) -> bool:
+    """A folder link at target pointing to src: a symlink, or on Windows without the right to make one, a
+    junction (any user can make those). False when neither works."""
+    try:
+        os.symlink(src, target, target_is_directory=True)
+        return True
+    except OSError:
+        pass
+    if sys.platform == "win32":
+        try:
+            import _winapi
+            _winapi.CreateJunction(str(src), str(target))
+            return True
+        except OSError:
+            pass
+    return False
 
 
 def is_setup(rel: str, cfg) -> bool:

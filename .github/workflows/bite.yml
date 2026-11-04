@@ -7,8 +7,76 @@ permissions:
   contents: read
   pull-requests: write
 
+# Bite checks each commit of a pull request with the whole suite (about 1 min 45 sec a commit here), and this 4-core
+# machine is already full with the tests running 4 at a time (.bite.ini), so 2 commits at once on one machine only
+# made each wait on the other. So each commit gets a machine of its own (up to 20, bite --shard K/N), and the
+# last job, named bite like the check always was, gathers them: every ✅ a machine found is remembered, so the
+# action checks only what's left (a change no test noticed, or tests that fail) and writes the one comment.
+# 17 commits went from about 30 minutes on one machine to about as long as the slowest one.
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      parts: ${{ steps.n.outputs.parts }}
+      total: ${{ steps.n.outputs.total }}
+    steps:
+      - id: n
+        env:
+          COMMITS: ${{ github.event.pull_request.commits }}
+        # One part per commit, at most 20 (the action's max-commits), at least 1.
+        run: |
+          n=$COMMITS; [ "${n:-0}" -lt 1 ] && n=1; [ "$n" -gt 20 ] && n=20
+          echo "total=$n" >> "$GITHUB_OUTPUT"
+          echo "parts=[$(seq 1 "$n" | paste -sd, -)]" >> "$GITHUB_OUTPUT"
+
+  part:
+    needs: plan
+    # One commit: the bite job checks it itself. A part machine first would only add its own set-up (~20 sec).
+    if: fromJSON(needs.plan.outputs.total) > 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ${{ fromJSON(needs.plan.outputs.parts) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: |
+          python -m pip install pytest pytest-xdist
+          pipx install .
+      # The same memory the action keeps for this pull request: a new push checks only the new commits.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: bite_proof/checked.json
+          key: bite-checked-${{ github.event.pull_request.number }}-${{ github.run_id }}
+          restore-keys: bite-checked-${{ github.event.pull_request.number }}-
+      - name: Bite checks part ${{ matrix.part }} of ${{ needs.plan.outputs.total }} of this pull request's commits
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        # The same commits and options as the action's own run below (max-commits 20, --part-runs 2), so what this
+        # part remembers counts there. A gap here doesn't fail this job: the bite job says so, once.
+        run: |
+          n=$(git rev-list --count --no-merges "$BASE..HEAD")
+          [ "$n" -gt 20 ] && n=20
+          bite --free --since "$BASE" --last "$n" --free-checks "$n" --part-runs 2 --shard ${{ matrix.part }}/${{ needs.plan.outputs.total }} \
+            || echo "::notice::Part ${{ matrix.part }} found something: the bite job checks it again and says what."
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: bite-part-${{ matrix.part }}
+          path: bite_proof/checked.json
+          if-no-files-found: ignore
+
   bite:
+    needs: part
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -20,9 +88,23 @@ jobs:
           python-version: "3.13"
       # Only the test runner: Bite is installed on its own by the action, so the tests import each copy's code.
       - run: python -m pip install pytest pytest-xdist
+      - uses: actions/download-artifact@v8
+        continue-on-error: true  # no part remembered anything (say, no commit had a test that noticed)
+        with:
+          pattern: bite-part-*
+          path: parts/
+      - name: Gather what the parts remembered
+        run: |
+          python bot/merge_shards.py parts gathered > /dev/null
+          if [ -f gathered/checked.json ]; then mkdir -p bite_proof && cp gathered/checked.json bite_proof/; fi
+      # The action restores the newest memory of this pull request over bite_proof/checked.json: saved now, the
+      # gathered one is the newest (a cache is found only under the same path, so it's saved from there).
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        if: hashFiles('bite_proof/checked.json') != ''
+        with:
+          path: bite_proof/checked.json
+          key: bite-checked-${{ github.event.pull_request.number }}-${{ github.run_id }}-parts
       - uses: ./
         with:
-          # .bite.ini runs the tests 4 at a time, --jobs 2 checks 2 commits at once (a run that fails beside the
-          # other counts only if it fails again alone), and a smaller piece-check budget keeps this to a few minutes.
-          # The action remembers commits it already checked on this pull request, so a new push checks only new ones.
-          args: --part-runs 2 --jobs 2
+          # A smaller piece-check budget keeps this to a few minutes. Keep it the same as the parts' --part-runs.
+          args: --part-runs 2

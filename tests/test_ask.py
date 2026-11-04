@@ -57,6 +57,17 @@ def test_a_guarded_fix_gets_yes_and_its_commit(tmp_path):
     assert len(r["checked"]) == 1  # the discount fix shares no word with the question: not checked
 
 
+def test_the_matching_commit_count_is_singular_or_plural(tmp_path):
+    root = make(tmp_path)
+    one = []
+    ask.ask(root, "is last week's login bug guarded?", now=NOW, log=one.append)
+    assert "Bite: checking 1 matching commit: each runs your tests twice (with and without the change)..." in one
+
+    two = []
+    ask.ask(root, "are the login and discount fixes guarded?", now=NOW, log=two.append)
+    assert "Bite: checking 2 matching commits: each runs your tests twice (with and without the change)..." in two
+
+
 def test_a_fix_no_test_notices_gets_no_and_a_next_step(tmp_path):
     r = ask.ask(make(tmp_path), "did the discount fix get a test?", now=NOW, log=lambda s: None)
     assert r["status"] == "gap", r["text"]

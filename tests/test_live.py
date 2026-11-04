@@ -116,6 +116,27 @@ def test_bite_live_prints_the_result_for_slash_bite(tmp_path, monkeypatch, capsy
     assert "no test noticed the change to cart.py" in capsys.readouterr().out
 
 
+def test_a_repository_with_no_commits_says_so_instead_of_naming_head(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "empty"
+    root.mkdir()
+    git(root, "init", "-q")
+    (root / "cart.py").write_text(CODE)
+    monkeypatch.chdir(root)
+    import recent
+    assert recent.main(["live"]) == 0
+    out = capsys.readouterr().out
+    assert "this repository has no commits yet" in out
+    assert "Make a first commit, then run bite live again." in out
+    assert "--since HEAD" not in out
+
+
+def test_a_missing_since_ref_still_names_the_ref(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(make(tmp_path))
+    import recent
+    assert recent.main(["live", "--since", "nosuchbranch"]) == 1
+    assert "--since nosuchbranch isn't a commit or branch in this repository." in capsys.readouterr().out
+
+
 def test_the_plugin_runs_these_commands():
     hooks = json.loads((KIT / "plugin" / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     assert hooks["hooks"]["Stop"][0]["hooks"][0]["command"] == "bite live --hook"
