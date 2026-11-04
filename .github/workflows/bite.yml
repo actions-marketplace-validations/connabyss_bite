@@ -27,7 +27,7 @@ jobs:
         run: |
           n=$COMMITS; [ "${n:-0}" -lt 1 ] && n=1; [ "$n" -gt 20 ] && n=20
           echo "total=$n" >> "$GITHUB_OUTPUT"
-          echo "parts=[$(seq -s, 1 "$n")]" >> "$GITHUB_OUTPUT"
+          echo "parts=[$(seq 1 "$n" | paste -sd, -)]" >> "$GITHUB_OUTPUT"
 
   part:
     needs: plan
