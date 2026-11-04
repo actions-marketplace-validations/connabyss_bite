@@ -26,6 +26,15 @@ def test_a_few_tests_rerun_in_one_process():
         assert recent.one_process(cmd) == "pytest x.py", cmd
     assert recent.one_process("pytest -q x.py") == "pytest -q x.py"  # nothing to drop
     assert recent.one_process("npm test -- -n 3") == "npm test -- -n 3"  # not pytest: left alone
+    # only when pytest itself runs the tests: a word "pytest" elsewhere in the line isn't enough
+    for cmd in ("tox -e pytest -- -n 4 x.py", "make test-pytest -n 2", "nox -s pytest_all -n 4",
+                "./run_pytests.sh -n 4"):
+        assert recent.one_process(cmd) == cmd, cmd
+    assert recent.one_process(r"C:\venv\Scripts\pytest.exe -n 4 x.py") == r"C:\venv\Scripts\pytest.exe x.py"
+    assert recent.one_process("py.test -n 4 x.py -- -n 2") == "py.test x.py -- -n 2"  # after --: not pytest's
+    # flags before the pytest word belong to the tool that starts it
+    assert recent.one_process("uv run -n pytest -q -n auto tests/a.py") == "uv run -n pytest -q tests/a.py"
+    assert recent.one_process("xvfb-run -n 99 python -m pytest -n 4 t.py") == "xvfb-run -n 99 python -m pytest t.py"
 
 
 def project(tmp_path):
@@ -47,3 +56,9 @@ def test_the_tests_that_failed_rerun_without_xdist(tmp_path):
     fcfg = project(tmp_path)
     sub = recent.failed_only(fcfg, tmp_path, "FAILED tests/test_a.py::test_x - assert False\n1 failed in 0.1s\n")
     assert sub is not None and "test_x" in sub.test_cmd and " -n " not in f" {sub.test_cmd} ", sub.test_cmd
+
+
+def test_windows_ci_writes_its_temp_files_to_the_fast_drive():
+    flow = (KIT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    step = flow[flow.index("if: runner.os == 'Windows'\n        shell: pwsh"):flow.index("actions/setup-python")]
+    assert '"TMP=D:\\tmp"' in step and '"TEMP=D:\\tmp"' in step, step

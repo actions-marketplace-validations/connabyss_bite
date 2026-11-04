@@ -1762,12 +1762,20 @@ def failed_only(fcfg, folder: Path, out: str):
 XDIST = re.compile(r"\s(?:-n|--numprocesses)(?:=|\s+)?(?!-)\S+|\s--dist(?:=|\s+)\S+")
 
 
+# pytest itself runs the tests: pytest, py.test or python -m pytest (any folder, .exe), not just a word in the line.
+PYTEST_RUNNER = re.compile(r"(?:^|[\s/\\])(?:py\.test|pytest)(?:\.exe)?(?=\s|$)")
+
+
 def one_process(cmd: str) -> str:
     """A pytest command for a few tests, without pytest-xdist's -n (and the --dist that goes with it): starting
     its workers took longer than the few tests themselves. They run the same in one process."""
-    if "pytest" not in cmd or not re.search(r"\s(?:-n|--numprocesses)", cmd):
+    head, sep, rest = cmd.partition(" -- ")  # what follows -- belongs to another tool (npm test -- -n 3)
+    runner = PYTEST_RUNNER.search(head)
+    if not runner:
         return cmd
-    return XDIST.sub("", cmd)
+    # only pytest's own options, after the pytest word: uv run -n (no cache) and xvfb-run -n 99 come before it
+    before, after = head[:runner.end()], head[runner.end():]
+    return before + XDIST.sub("", after) + sep + rest
 
 
 PYTEST_FILE = re.compile(r"(?:test_[^/]*|[^/]*_test)\.py$")
