@@ -2867,6 +2867,10 @@ def main(argv=None):
             # The project's folder, so nobody has to cd first: dragging a folder into the window types its path.
             folder = argv.pop(i).strip("\"'")
         else:
+            raw = argv[i].strip("\"'")
+            if folder is None and not argv[i].startswith("-"):
+                print(f"Bite: there's no folder at {raw}. Check the path, or drag the folder into this window to type it.")
+                return 2
             print(f"Bite: unknown option {argv[i]!r}. Run bite --help for the options.")
             return 2
     opt = lambda k, d: type(d)(argv[argv.index(k) + 1]) if k in argv else d  # noqa: E731
