@@ -2850,13 +2850,14 @@ def main(argv=None):
         if argv[i] in VALUED:
             kind = VALUED[argv[i]]
             need = "a whole number" if kind is int else "a number"
+            least = 1 if argv[i] == "--last" else 0  # git log -n0 can never find a commit
             try:
-                below = kind is not str and kind(argv[i + 1]) < 0  # git log -n-5 would read the whole history
+                below = kind is not str and kind(argv[i + 1]) < least
             except ValueError:
                 print(f"Bite: {argv[i]} needs {need}, got {argv[i + 1]!r}.")
                 return 2
             if below:
-                print(f"Bite: {argv[i]} needs {need} of 0 or more, got {argv[i + 1]!r}.")
+                print(f"Bite: {argv[i]} needs {need} of {least} or more, got {argv[i + 1]!r}.")
                 return 2
             i += 2
         elif argv[i] in FLAGS or (argv[i] == "comeback" and i and argv[i - 1] == "--demo"):
