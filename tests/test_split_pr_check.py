@@ -28,15 +28,43 @@ def bite(root, *args):
                           capture_output=True, text=True, timeout=300).stdout
 
 
-def test_every_part_runs_and_the_parts_match_the_action_run():
-    parts = re.search(r"part: \[([\d, ]+)\]", FLOW)[1].split(", ")
-    shard = re.search(r"--shard \$\{\{ matrix.part \}\}/(\d+)", FLOW)[1]
-    assert parts == [str(i) for i in range(1, int(shard) + 1)]  # every part 1..N runs, so every commit is checked
+def plan(commits):
+    """Run the plan job's script as the workflow does: its outputs for a pull request of this many commits."""
+    import json
+    import os
+    import shutil
+    import tempfile
+    import pytest
+    bash = shutil.which("bash")
+    if not bash or os.name == "nt":
+        pytest.skip("the plan step runs in bash on Linux")
+    script = re.search(r"  plan:.*?run: \|\n(.*?)\n\n", FLOW, re.S)[1]
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "out"
+        subprocess.run([bash, "-c", script], check=True, env={**os.environ, "COMMITS": str(commits),
+                                                              "GITHUB_OUTPUT": str(out)})
+        got = dict(ln.split("=", 1) for ln in out.read_text().splitlines())
+    return json.loads(got["parts"]), int(got["total"])
+
+
+def test_each_commit_gets_a_machine_of_its_own_up_to_the_action_limit():
+    max_commits = int(re.search(r"max-commits:.*?default: \"(\d+)\"", ACTION, re.S)[1])
+    assert plan(3) == ([1, 2, 3], 3)
+    assert plan(1) == ([1], 1)
+    assert plan(0) == ([1], 1)  # a matrix of nothing fails the whole run
+    assert plan(25) == (list(range(1, max_commits + 1)), max_commits)
+    # every part 1..N runs, and each takes its share of N: together they check every commit
+    assert "part: ${{ fromJSON(needs.plan.outputs.parts) }}" in FLOW
+    assert "--shard ${{ matrix.part }}/${{ needs.plan.outputs.total }}" in FLOW
+
+
+def test_the_parts_match_the_action_run():
     # What a part remembers counts in the action's run only with the same options (they're in the ✅'s key).
     part = re.search(r"bite --free .*?--part-runs (\d+)", FLOW)[1]
     assert re.search(r"args: --part-runs (\d+)", FLOW)[1] == part
     max_commits = re.search(r"max-commits:.*?default: \"(\d+)\"", ACTION, re.S)[1]
     assert f'[ "$n" -gt {max_commits} ] && n={max_commits}' in FLOW  # the same commits as the action checks
+    assert f'[ "$n" -gt {max_commits} ] && n={max_commits}' in re.search(r"  plan:.*?\n\n", FLOW, re.S)[0]
 
 
 def test_the_gathered_memory_is_where_the_action_restores_it_from():
