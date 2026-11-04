@@ -5,6 +5,11 @@ github.com/connabyss/bite. Install or update: `pipx install --force bite-check -
 
 ## 1.0.4 (2026-11-04)
 
+Thanks to [@hrithiksaini99](https://github.com/hrithiksaini99), Bite's first Hack Week contributor, for seven merged
+pull requests: "1 commit", not "1 commits" (#163); refuse `--last 0` (#164); "under 1 sec" instead of "0 sec" (#165);
+a missing folder is called a folder (#166); name the two demos on a wrong `--demo` name (#167); say what Bite
+looks for when no test command is found (#168); and a two-minute walkthrough on a toy repo (#169).
+
 - `--free-checks 0` is refused with a plain message. It used to check nothing and end as if all was well.
 - A test the commit added inside a parent test that is skipped on this system counts as skipped too, not as
   "didn't notice". tap names only the skipped parent (dotenv 7c675904 on Windows).
