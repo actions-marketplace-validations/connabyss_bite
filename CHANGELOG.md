@@ -3,8 +3,26 @@
 What changed in each Bite release, newest first. Numbers link to the pull request on
 github.com/connabyss/bite. Install or update: `pipx install --force bite-check --pip-args="--no-cache-dir"`.
 
-## Unreleased
+## 1.0.5 (2026-11-05)
 
+Thanks to [@phsecx](https://github.com/phsecx) for their first pull request: `--only` with a commit id that
+isn't in the repository now says so (#192). And thanks again to
+[@hrithiksaini99](https://github.com/hrithiksaini99) for three more: "Did you mean" for a misspelled option
+(#180), `bite live` in a repository with no commits yet (#181) and "1 matching commit" in `bite ask` (#182).
+
+- `bite --only zzzz` says "there's no commit zzzz in this repository" and stops (exit code 2). It used to say
+  "Nothing to check" and end as if all was well. With several ids, it names only the missing ones (#192).
+- A misspelled option gets a suggestion: `bite --fre` says "Did you mean --free?" (#180).
+- `bite live` in a repository with no commits yet says to make a first commit, instead of naming `--since HEAD`
+  (#181).
+- `bite ask` says "1 matching commit", not "1 matching commit(s)" (#182).
+- A test-run line full of `::` (like `FAILED ::::::...`) could make Bite hang while reading which tests failed:
+  the pattern for pytest's test names could try exponentially many ways to match it. It now reads such a line at
+  once, with the same names as before. Found by GitHub's CodeQL scan (#198).
+- Bite's own workflows run with read-only access to the repository unless a job asks for more (#198).
+- Bite's own tests on Windows and Mac run on 2 machines at once, each taking every other test (`--part K/2`, the
+  slowest first), so those jobs take about half as long. Every test still runs on every OS and Python; their
+  checks are named "tests part 1/2 (os, python)".
 - Bite asks git each question about a fixed commit once per run: it read the same file of the same commit up to 7
   times, and each git start costs tens of milliseconds on Windows. Anything that can move (HEAD, a branch, the
   working tree) is still asked every time.

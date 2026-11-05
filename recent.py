@@ -1471,7 +1471,9 @@ def unnoticed_part(root: Path, c: dict, folder: Path, fcfg, fast=None) -> list:
 
 
 # The names of failing tests, as pytest, unittest, go test, cargo test, jest, dotnet test, Maven and Gradle print them.
-FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) \S+::(?:\S+::)*([\w\[\]-]+)|^(?:FAIL|ERROR): (\w+) \(|--- FAIL: (\S+)|"
+# pytest's \S+:: already takes every earlier "x::" part, so the name after the last :: is what's kept. (An extra
+# (?:\S+::)* there made a line full of :: take forever: CodeQL alert #3.)
+FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) \S+::([\w\[\]-]+)|^(?:FAIL|ERROR): (\w+) \(|--- FAIL: (\S+)|"
                          r"^test (\S+) \.\.\. FAILED|^\s*✕ (.+?)(?: \(\d+ ?ms\))?$|^\s*Failed (\S+) \[|"
                          r"^\[ERROR\] (?:[\w$]+\.)*?([\w$]+\.[\w$]+|[\w$]+)(?:\([\w.$]*\))?\s+(?:-- )?Time elapsed:.*<<< (?:FAILURE|ERROR)!|"
                          r"^(?:[\w$]+\.)*([\w$]+ > .+?) FAILED$", re.M)
