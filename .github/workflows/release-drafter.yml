@@ -1,0 +1,36 @@
+name: release-drafter
+
+# Keeps the next release's notes up to date as a draft on the Releases page (the rules are in
+# .github/release-drafter.yml). A draft is private and changes nothing: only pressing Publish on it makes a
+# release, and that starts the publish workflow (PyPI) as before.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency: release-drafter
+
+jobs:
+  draft:
+    if: github.repository == 'connabyss/bite'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write  # to write the draft release
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # The draft is named after pyproject.toml's version, the same check the publish workflow makes.
+      - id: v
+        run: python3 -c "import tomllib; print('version=' + tomllib.load(open('pyproject.toml','rb'))['project']['version'])" >> "$GITHUB_OUTPUT"
+      - uses: release-drafter/release-drafter@72967cdc98ddd3160f1fc3dff619de365e137dd0  # v7.9.0
+        with:
+          version: ${{ steps.v.outputs.version }}
+          tag: v${{ steps.v.outputs.version }}
+          name: v${{ steps.v.outputs.version }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

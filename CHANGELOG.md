@@ -3,6 +3,21 @@
 What changed in each Bite release, newest first. Numbers link to the pull request on
 github.com/connabyss/bite. Install or update: `pipx install --force bite-check --pip-args="--no-cache-dir"`.
 
+## Unreleased
+
+- A small easter egg for Hack Week: a commit that says it's fixed "for real this time" (or only "hopefully")
+  gets one extra line saying whether a test agrees. It only reacts to words really in the commit's subject.
+
+## 1.0.6 (2026-11-05)
+
+- `bite mcp`: the check_fix and ask_bite tool descriptions now say which tool to use when, what each answer
+  means (including "couldn't check", which isn't a pass) and how many test runs each takes. The settings they
+  take have examples and defaults (#214).
+- New pages and files in the repository: a short comparison of Bite with mutmut and coverage.py (#212),
+  SECURITY.md and a Code of Conduct (#209), glama.json for Bite's Glama listing (#211), and CONTRIBUTORS.md
+  crediting Bite's contributors (#213). The README and CONTRIBUTING are shorter, with the
+  details moved to docs/ (#207, #208), and the README has a "Fooled Bite" box (#206).
+
 ## 1.0.5 (2026-11-05)
 
 Thanks to [@phsecx](https://github.com/phsecx) for their first pull request: `--only` with a commit id that

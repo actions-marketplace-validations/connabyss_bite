@@ -1,0 +1,37 @@
+# Release Drafter (.github/workflows/release-drafter.yml) keeps a draft of the next release's notes on the
+# Releases page, adding each pull request as it merges into main. To release: bump the version in
+# pyproject.toml, then open the draft on github.com/connabyss/bite/releases, read it, and press Publish.
+# The version, tag and title come from pyproject.toml, so the publish workflow's tag check always matches.
+change-template: "- $TITLE (#$NUMBER, @$AUTHOR)"
+change-title-escapes: '\<*_&'
+exclude-labels:
+  - skip-changelog
+categories:
+  - title: Updates to the tools Bite's own repo uses
+    labels:
+      - dependencies
+# The "Thank you" line names everyone else who helped: the owner and the bots are left out.
+exclude-contributors:
+  - connabyss
+  - Claude
+  - claude
+  - claude[bot]
+  - dependabot
+  - dependabot[bot]
+  - github-actions
+  - github-actions[bot]
+  - bite-check
+  - bite-check[bot]
+  - web-flow
+no-contributors-template: "Nobody new this time: just the Bite team."
+template: |
+  ## What changed
+
+  $CHANGES
+
+  ## Thank you
+
+  $CONTRIBUTORS
+
+  Install or update: `pipx install --force bite-check --pip-args="--no-cache-dir"`
+  Every change: https://github.com/connabyss/bite/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION

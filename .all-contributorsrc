@@ -1,0 +1,71 @@
+{
+  "projectName": "bite",
+  "projectOwner": "connabyss",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "files": [
+    "CONTRIBUTORS.md"
+  ],
+  "imageSize": 80,
+  "commit": false,
+  "commitConvention": "none",
+  "contributorsPerLine": 6,
+  "linkToUsage": false,
+  "contributors": [
+    {
+      "login": "snehaapratap",
+      "name": "snehaapratap",
+      "avatar_url": "https://avatars.githubusercontent.com/u/170080122?v=4",
+      "profile": "https://github.com/snehaapratap",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "gauravjangra3165",
+      "name": "gauravjangra3165",
+      "avatar_url": "https://avatars.githubusercontent.com/u/300753752?v=4",
+      "profile": "https://github.com/gauravjangra3165",
+      "contributions": [
+        "infra"
+      ]
+    },
+    {
+      "login": "bfs2021",
+      "name": "bfs2021",
+      "avatar_url": "https://avatars.githubusercontent.com/u/101915083?v=4",
+      "profile": "https://github.com/bfs2021",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "HarshRajSinghania",
+      "name": "HarshRajSinghania",
+      "avatar_url": "https://avatars.githubusercontent.com/u/40535627?v=4",
+      "profile": "https://github.com/HarshRajSinghania",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "hrithiksaini99",
+      "name": "hrithiksaini99",
+      "avatar_url": "https://avatars.githubusercontent.com/u/49943287?v=4",
+      "profile": "https://github.com/hrithiksaini99",
+      "contributions": [
+        "code",
+        "doc"
+      ]
+    },
+    {
+      "login": "phsecx",
+      "name": "phsecx",
+      "avatar_url": "https://avatars.githubusercontent.com/u/245661236?v=4",
+      "profile": "https://github.com/phsecx",
+      "contributions": [
+        "code"
+      ]
+    }
+  ]
+}
