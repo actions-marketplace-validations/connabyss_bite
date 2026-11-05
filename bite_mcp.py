@@ -29,18 +29,24 @@ TOOL = {
     "title": "Bite: does a test notice my fix?",
     "description": (
         "Call this after you change code to fix a bug, before you tell the user it's fixed. Bite takes your "
-        "change back out of a copy of the project and runs the project's tests. If they still pass, no test "
-        "shows your fix does anything: add a test that fails without your change and passes with it, then call "
-        "this again. Free, needs no key, never touches the user's files. Can take as long as the tests do."),
+        "change back out of a copy of the project and runs the project's tests: once with the change in, once "
+        "without. Free, needs no key, never touches the user's files. Takes about twice as long as the tests do. "
+        "The answer is one of: a test noticed (done); no test noticed (add a test that fails without your change "
+        "and passes with it, then call this again); couldn't check, with the reason, such as the tests already "
+        "failing with your change in (not a pass: tell the user); or nothing to check (no code the tests run "
+        "changed). To ask about an earlier fix in plain words, without knowing its commit, use ask_bite instead."),
     "inputSchema": {
         "type": "object",
         "properties": {
             "folder": {"type": "string",
-                       "description": "The project folder you changed (any folder inside its git repository). "
-                                      "Leave it out to use the folder Bite was started in."},
+                       "description": "Path to the project you changed: its top folder or any folder inside its git "
+                                      "repository, for example \"/home/me/project\". Leave it out to use the folder "
+                                      "Bite was started in."},
             "since": {"type": "string",
-                      "description": "Check the changes since this commit or branch (for example main). "
-                                     "Default: the changes since the last commit, including uncommitted ones."},
+                      "description": "A commit id or branch name, for example main to check a whole branch's "
+                                     "changes. Bite checks everything that changed since then, committed or not. "
+                                     "Leave it out to check only the changes since the last commit, including "
+                                     "uncommitted ones."},
         },
     },
     "annotations": {"readOnlyHint": True, "openWorldHint": False},
@@ -51,17 +57,25 @@ ASK = {
     "name": "ask_bite",
     "title": "Bite: is this past fix guarded by a test?",
     "description": (
-        "Ask in plain words about a fix already committed, like \"is last week's login fix guarded?\". Bite finds "
-        "the matching commit(s) by their messages, changed file names and the time named (today, yesterday, last "
-        "week, the last 10 days...), takes each change back out of a copy and runs the tests. The answer opens in a "
-        "few words (Yes, No or Partly), then a short block per commit, with its id. Free, needs no key, never touches the user's files. If nothing "
-        "matches, ask again with words from the commit message."),
+        "Ask in plain words about a fix already committed, like \"is last week's login fix guarded?\". Use "
+        "check_fix instead for a change you just made. Bite finds up to 3 matching commits by their messages, "
+        "the names they changed and the time named (today, yesterday, last week, the last 10 days...), takes each "
+        "change back out of a copy and runs the tests twice (with and without it), so it takes up to six test "
+        "runs. Free, needs no key, never touches the user's files. The answer opens in a few words (Yes, No or "
+        "Partly), then a short block per commit, with its id. If nothing matches, it says so: ask again with "
+        "words from the commit message or a function or file name it changed. If Bite couldn't check, that "
+        "isn't a pass: tell the user."),
     "inputSchema": {
         "type": "object",
         "properties": {
-            "question": {"type": "string", "description": "The question, in plain words."},
+            "question": {"type": "string",
+                         "description": "The question, in plain words. Name the fix (words from its commit "
+                                        "message, or a function or file it changed) and, if you know it, when "
+                                        "(\"yesterday\", \"last week\")."},
             "folder": TOOL["inputSchema"]["properties"]["folder"],
-            "last": {"type": "integer", "description": "How many recent commits to look through (default 100)."},
+            "last": {"type": "integer", "minimum": 1,
+                     "description": "How many recent commits to search, newest first (default 100). Raise it "
+                                    "for an older fix."},
         },
         "required": ["question"],
     },
