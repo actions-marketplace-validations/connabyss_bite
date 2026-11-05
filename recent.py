@@ -2676,7 +2676,7 @@ RESULT_NAMES = {"held": "noticed", "gap": "no_test_noticed", "odd": "its_tests_d
 
 def results(cs: list, none: str = "", error: str = "", newest: str = "", tried: list = ()) -> dict:
     """The run for other programs (bite --json, bite_proof/results.json): the same results as the comment, under
-    names that stay the same between releases. The fields are listed in README.md (Results for other tools)."""
+    names that stay the same between releases. The fields are listed in docs/score-and-results.md (Results for other tools)."""
     checked = [c for c in cs if c.get("undo")]
     commits = []
     for c in checked:

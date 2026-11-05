@@ -9,7 +9,7 @@ project and the tests are run. No API key, nothing of yours is touched.
 
     bite mcp     run the server (your coding AI starts it; it talks JSON on stdin and stdout)
 
-Setup lines for each coding AI: README.md, "Check the "fixed" live, in any coding AI".
+Setup lines for each coding AI: docs/live.md, "Check the "fixed" live, in any coding AI".
 Written by hand on purpose, so Bite still needs no packages: newline-delimited JSON-RPC over stdio.
 """
 
