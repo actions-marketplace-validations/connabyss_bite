@@ -3,8 +3,19 @@
 What changed in each Bite release, newest first. Numbers link to the pull request on
 github.com/connabyss/bite. Install or update: `pipx install --force bite-check --pip-args="--no-cache-dir"`.
 
-## Unreleased
+## 1.0.5 (2026-11-06)
 
+Thanks to [@phsecx](https://github.com/phsecx) for their first pull request: `--only` with a commit id that
+isn't in the repository now says so (#192). And thanks again to
+[@hrithiksaini99](https://github.com/hrithiksaini99) for three more: "Did you mean" for a misspelled option
+(#180), `bite live` in a repository with no commits yet (#181) and "1 matching commit" in `bite ask` (#182).
+
+- `bite --only zzzz` says "there's no commit zzzz in this repository" and stops (exit code 2). It used to say
+  "Nothing to check" and end as if all was well. With several ids, it names only the missing ones (#192).
+- A misspelled option gets a suggestion: `bite --fre` says "Did you mean --free?" (#180).
+- `bite live` in a repository with no commits yet says to make a first commit, instead of naming `--since HEAD`
+  (#181).
+- `bite ask` says "1 matching commit", not "1 matching commit(s)" (#182).
 - Bite's own tests on Windows and Mac run on 2 machines at once, each taking every other test (`--part K/2`, the
   slowest first), so those jobs take about half as long. Every test still runs on every OS and Python; their
   checks are named "tests part 1/2 (os, python)".
