@@ -1,0 +1,50 @@
+name: claude
+
+# Type @claude in an issue, a pull request, or a review comment, and Claude Code answers right there. Ask it to fix
+# something and it pushes a claude/ branch with a link to open the pull request: it never merges anything.
+# It runs on the repo's ANTHROPIC_API_KEY secret, so only people with write access to this repo (the owner and
+# collaborators) can start it. A stranger typing @claude starts nothing, so nobody else can spend the key.
+# To keep each run cheap it uses Sonnet, stops after 15 turns, and gives up after 20 minutes.
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [opened, assigned]
+
+permissions: {}
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # One run at a time per issue or pull request, so two quick @claude comments don't race each other.
+    concurrency: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read  # lets Claude read why a check failed on a pull request
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - uses: anthropics/claude-code-action@f9fffe565bf81a7fcadb308a9d688a74e3b029f7  # v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --model sonnet
+            --max-turns 15
