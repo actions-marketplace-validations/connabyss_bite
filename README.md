@@ -57,6 +57,7 @@ Bite names that fix, so you can tell your AI: "add a test that fails without thi
 
 Works with pytest, npm test, cargo test, go test, dotnet test, Maven and Gradle (Java and Kotlin).
 Full list: [SUPPORTS.md](https://github.com/connabyss/bite/blob/main/SUPPORTS.md).
+How Bite differs from coverage and mutation testing: [Bite, mutmut and coverage](https://github.com/connabyss/bite/blob/main/docs/comparison.md).
 
 ## Everything else Bite can do
 
