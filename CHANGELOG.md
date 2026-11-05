@@ -16,6 +16,10 @@ isn't in the repository now says so (#192). And thanks again to
 - `bite live` in a repository with no commits yet says to make a first commit, instead of naming `--since HEAD`
   (#181).
 - `bite ask` says "1 matching commit", not "1 matching commit(s)" (#182).
+- A test-run line full of `::` (like `FAILED ::::::...`) could make Bite hang while reading which tests failed:
+  the pattern for pytest's test names could try exponentially many ways to match it. It now reads such a line at
+  once, with the same names as before. Found by GitHub's CodeQL scan (#198).
+- Bite's own workflows run with read-only access to the repository unless a job asks for more (#198).
 - Bite's own tests on Windows and Mac run on 2 machines at once, each taking every other test (`--part K/2`, the
   slowest first), so those jobs take about half as long. Every test still runs on every OS and Python; their
   checks are named "tests part 1/2 (os, python)".
