@@ -7,6 +7,9 @@ on:
   # bot/self_check.py starts it on the pull request it opens (GitHub doesn't start checks on those by itself).
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   # Windows and Mac run the tests on 2 machines at once, each taking every other test (--part K/2, slowest first),
   # so they take about half as long: their checks are "tests part 1 (os, python)" and "tests part 2 (os, python)".
