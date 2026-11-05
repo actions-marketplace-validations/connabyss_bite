@@ -89,9 +89,11 @@ def test_the_log_says_what_each_test_run_is():
 
 def test_a_long_test_run_says_it_is_still_running(monkeypatch, capsys):
     # On CH's PC (2026-11-02) each run of a 34-second suite left the log silent, which looks stuck to a newcomer.
-    fake_runs(monkeypatch, secs=0.35)
+    # 1.5 sec, ticks every 0.1: on a busy CI Mac (2026-11-05) a 0.35-sec run ended before the ticker got its turn
+    fake_runs(monkeypatch, secs=1.5)
     monkeypatch.setattr(recent, "JOBS", [1])
     monkeypatch.setattr(recent, "TICK", 0.1)
+    monkeypatch.setattr(recent, "PROGRESS", {"start": time.monotonic(), "done": 0, "total": 0})  # outside a check
     recent.doing({"sha": "abcdef1234"}, "running the tests with the change in...")
     recent.run_tests(None, "a")
     out = capsys.readouterr().out

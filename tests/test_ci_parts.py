@@ -1,6 +1,5 @@
 """CI splits the slow Windows and Mac test jobs across 2 machines (2026-11-04): each takes every other test
-(--part K/2). Together they must run every test exactly once, and the checks main requires must still pass only
-when every part passed. No key, no network."""
+(--part K/2). Together they must run every test exactly once. No key, no network."""
 
 import re
 import subprocess
@@ -27,14 +26,9 @@ def test_the_parts_together_run_every_test_exactly_once():
     assert any("test_selftest" in t for t in one) and any("test_selftest" in t for t in two)
 
 
-def test_each_required_check_needs_all_of_its_parts():
+def test_windows_and_mac_run_in_2_parts_and_ubuntu_keeps_its_check_name():
     assert "--part ${{ matrix.part }}/${{ matrix.os == 'ubuntu-latest' && 1 || 2 }}" in FLOW
-    test_job = FLOW[FLOW.index("\n  test:\n"):]
-    assert "needs: part" in test_job and "if: always()" in test_job  # reports even when a part fails
-    assert "want=${{ matrix.os == 'ubuntu-latest' && 1 || 2 }}" in test_job and '[ "$n" -eq "$want" ]' in test_job
-    # named "test (os, python)" like the checks main requires: a matrix job named test, over the same os and python
-    assert re.search(r"\n  test:\n(?:(?!\n  \w).)*?os: \[ubuntu-latest, windows-latest, macos-latest\]\n"
-                     r"\s+python: \[\"3.10\", \"3.13\"\]", FLOW, re.S)
-    # a part marks itself passed only after its tests did (a failed step stops the job before this)
-    part = FLOW[FLOW.index("\n  part:\n"):FLOW.index("\n  test:\n")]
-    assert part.index("python -m pytest") < part.index("echo ok > passed.txt") < part.index("upload-artifact")
+    assert re.search(r"part: \[1, 2\]\n\s+exclude:\n\s+- os: ubuntu-latest\n\s+part: 2\n", FLOW)
+    # Ubuntu keeps the check name main requires; each Windows and Mac part is its own check
+    assert "format('test ({0}, {1})', matrix.os, matrix.python)" in FLOW
+    assert "format('tests part {0} ({1}, {2})', matrix.part, matrix.os, matrix.python)" in FLOW
