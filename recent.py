@@ -2193,7 +2193,41 @@ def save_log(root: Path, tried: list, cs: list) -> None:
 SETUP_LINK = "https://github.com/connabyss/bite/blob/main/AGENTS.md#setup-once-your-person-says-yes-they-only-paste-a-key-and-only-for-the-paid-step"
 
 
+# A small easter egg: when a commit sounds very sure, or not sure at all, the result says so in one extra line. It only
+# fires on the words really in the commit's subject, and only says what the free check really found.
+SURE = ("for real this time", "for real", "actually fixed", "actually fixes", "really fixed", "finally fixed",
+        "definitely fixed", "100% fixed")
+UNSURE = ("hopefully", "should fix", "should be fixed", "fingers crossed", "might fix", "maybe fix", "i think")
+NONE_NOTICED = ("⚠️ NO TEST NOTICED", "⚠️ ITS TESTS DIDN'T NOTICE")
+
+
+def sounds(subject: str, kind: str, label: str) -> str:
+    """The egg's line for one result, or "" when the commit's words or its result don't call for one."""
+    if kind != "held" and label not in NONE_NOTICED:
+        return ""
+    low = " " + re.sub(r"[^a-z0-9%]+", " ", (subject or "").lower()) + " "
+    for words in SURE:
+        if f" {words} " in low:
+            if kind == "held":
+                return f"It said “{words}”. " + ("This time, a test agrees." if "this time" in words else "And a test agrees.")
+            return f"It said “{words}”. No test agrees."
+    for words in UNSURE:
+        if f" {words} " in low:
+            w = words[0].upper() + words[1:]
+            return f"“{w},” it said. " + ("A test backs it up." if kind == "held" else "No test backs it up.")
+    return ""
+
+
 def say(c: dict, newest: str = "") -> tuple[str, str, str]:
+    """say_plain(), plus the easter egg's line when the commit's own words call for one (see sounds())."""
+    kind, label, text = say_plain(c, newest)
+    egg = sounds(c.get("subject", ""), kind, label)
+    if egg:
+        text = text.replace(" **Next:**", f" {egg} **Next:**", 1) if " **Next:**" in text else f"{text} {egg}"
+    return kind, label, text
+
+
+def say_plain(c: dict, newest: str = "") -> tuple[str, str, str]:
     """One free-check result in plain words, the same in the terminal, the report, the job page and the pull request
     comment: (kind, short label, one or two sentences). Each answers one question: if this change disappeared, would
     any test notice? kind is held, gap, odd, back (a later commit undid it), fail, none or skip. newest is the pull request's newest commit: tests
