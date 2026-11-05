@@ -23,7 +23,7 @@ Run `bite --free` in your repo (no key, free). If Bite gets it wrong, open an is
 [I fooled Bite](https://github.com/connabyss/bite/issues/new?template=fool-bite.md) form. The two tricks under
 "Still fools Bite" below are already known, so they don't count; a new twist on one does.
 
-Every trick that works goes in the tables below with your name, gets a test in
+Every trick that works goes in the tables below and in the README's "Fooled Bite" box with your name, gets a test in
 [tests/test_tricks.py](tests/test_tricks.py), and gets fixed if it can be. Tricks Bite catches are welcome too:
 they go under "Not fooled".
 
