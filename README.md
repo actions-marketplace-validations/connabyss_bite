@@ -33,6 +33,10 @@ installed as a `bite` command, see [Try it in a minute](#try-it-in-a-minute).
 are small, and each one says where to look and when it's done. Comment on one to claim it. Or try to
 [fool Bite](https://github.com/connabyss/bite/issues/156): sneak a "fix" past it.
 
+> 🏆 **Fooled Bite: nobody yet.** Be the first: your name, your trick, and the test that now catches it go right
+> here. ([How to enter](https://github.com/connabyss/bite/blob/main/TRICKS.md#your-turn-fool-bite). Bite's own 2 known blind spots are in
+> [Still fools Bite](https://github.com/connabyss/bite/blob/main/TRICKS.md#still-fools-bite), so they don't count.)
+
 > **Bite does this:** takes each recent fix back out of a copy of your project, runs your tests, and tells you
 > whether any test noticed. It never changes your files or pushes anything, and the free check costs nothing.
 >
