@@ -158,10 +158,6 @@ are small, and each one says where to look and when it's done. Comment on one to
 Bug reports, fixes and AI-assisted PRs are all welcome. See [CONTRIBUTING.md](https://github.com/connabyss/bite/blob/main/CONTRIBUTING.md). If Bite flagged
 something wrongly, or missed a claim you know was false, please [open an issue](https://github.com/connabyss/bite/issues/new/choose).
 
-Thank you to Bite's first contributors:
-
-- [@snehaapratap](https://github.com/snehaapratap) made the setup error messages point to steps that exist ([#18](https://github.com/connabyss/bite/pull/18)).
-- [@gauravjangra3165](https://github.com/gauravjangra3165) added macOS to the tests ([#19](https://github.com/connabyss/bite/pull/19)).
-- [@bfs2021](https://github.com/bfs2021) made the "check it yourself" steps work for commits that add a new file ([#37](https://github.com/connabyss/bite/pull/37), fixing [#27](https://github.com/connabyss/bite/issues/27)).
+Thank you to [everyone who has helped make Bite](https://github.com/connabyss/bite/blob/main/CONTRIBUTORS.md).
 
 MIT licensed.

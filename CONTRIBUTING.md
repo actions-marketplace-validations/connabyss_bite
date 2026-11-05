@@ -37,6 +37,7 @@ left unticked. The one real ask:
 
 Nice to have, never required: light and dark screenshots if it changes how something looks (we can take them).
 If a small piece is left over, a maintainer may finish it for you and keep you as co-author.
+Once it's merged, you're credited by name in [CONTRIBUTORS.md](CONTRIBUTORS.md) and in the next release's notes.
 
 ## AI-assisted PRs
 
