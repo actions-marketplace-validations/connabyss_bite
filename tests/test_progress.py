@@ -29,6 +29,16 @@ def fake_runs(monkeypatch, secs=0.0):
     return calls
 
 
+def no_ticker_left():
+    """Wait for the "still running" printer of an earlier test's runs to end. Woken as that run ended, it can miss its
+    turn on a busy machine (a CI Mac, 2026-11-05) until this test's run has begun: it then keeps waiting out the
+    earlier test's 30-second TICK and prints nothing while this test looks for a line."""
+    deadline = time.monotonic() + 10
+    while recent._TICKER[0] is not None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert recent._TICKER[0] is None, "an earlier test's test run is still going"
+
+
 def test_a_failing_run_alone_on_the_machine_is_not_run_twice(monkeypatch):
     calls = fake_runs(monkeypatch)
     assert not recent.run_tests(None, "a")["ok"]
@@ -89,8 +99,8 @@ def test_the_log_says_what_each_test_run_is():
 
 def test_a_long_test_run_says_it_is_still_running(monkeypatch, capsys):
     # On CH's PC (2026-11-02) each run of a 34-second suite left the log silent, which looks stuck to a newcomer.
-    # 1.5 sec, ticks every 0.1: on a busy CI Mac (2026-11-05) a 0.35-sec run ended before the ticker got its turn
-    fake_runs(monkeypatch, secs=1.5)
+    no_ticker_left()
+    fake_runs(monkeypatch, secs=0.35)
     monkeypatch.setattr(recent, "JOBS", [1])
     monkeypatch.setattr(recent, "TICK", 0.1)
     monkeypatch.setattr(recent, "PROGRESS", {"start": time.monotonic(), "done": 0, "total": 0})  # outside a check
@@ -110,6 +120,7 @@ def test_runs_side_by_side_share_one_still_running_line(monkeypatch, capsys):
         both.wait()  # both runs are going on before the first tick (a slow machine starts one late)
         time.sleep(0.6)
         return {"ok": True, "out": "", "why": ""}
+    no_ticker_left()
     monkeypatch.setattr(recent.bite, "run_tests", run)
     monkeypatch.setattr(recent, "TICK", 0.25)
     monkeypatch.setattr(recent, "PROGRESS", {"start": time.monotonic(), "done": 1, "total": 4})
