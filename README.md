@@ -160,4 +160,6 @@ something wrongly, or missed a claim you know was false, please [open an issue](
 
 Thank you to [everyone who has helped make Bite](https://github.com/connabyss/bite/blob/main/CONTRIBUTORS.md).
 
+Also by me: [Cold Case Unit](https://connabyss.github.io/cold-case/), which opens a murder case on every GitHub project its owner walked away from.
+
 MIT licensed.
