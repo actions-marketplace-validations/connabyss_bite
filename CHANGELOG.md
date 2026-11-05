@@ -5,6 +5,9 @@ github.com/connabyss/bite. Install or update: `pipx install --force bite-check -
 
 ## Unreleased
 
+- Bite's own tests on Windows and Mac run on 2 machines at once, each taking every other test (`--part K/2`, the
+  slowest first), so those jobs take about half as long. Every test still runs on every OS and Python; their
+  checks are named "tests part 1/2 (os, python)".
 - Bite asks git each question about a fixed commit once per run: it read the same file of the same commit up to 7
   times, and each git start costs tens of milliseconds on Windows. Anything that can move (HEAD, a branch, the
   working tree) is still asked every time.
