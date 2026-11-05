@@ -3,6 +3,11 @@
 What changed in each Bite release, newest first. Numbers link to the pull request on
 github.com/connabyss/bite. Install or update: `pipx install --force bite-check --pip-args="--no-cache-dir"`.
 
+## Unreleased
+
+- A small easter egg for Hack Week: a commit that says it's fixed "for real this time" (or only "hopefully")
+  gets one extra line saying whether a test agrees. It only reacts to words really in the commit's subject.
+
 ## 1.0.6 (2026-11-05)
 
 - `bite mcp`: the check_fix and ask_bite tool descriptions now say which tool to use when, what each answer
